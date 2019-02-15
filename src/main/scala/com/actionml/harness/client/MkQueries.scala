@@ -7,14 +7,30 @@ import java.util.concurrent.Executors
 import cats.effect.{ ExitCode, IO, IOApp, Resource }
 import cats.implicits._
 import com.actionml.entity.Event
-import SendEventsApp.URNavHintingEvent
 import fs2.{ Stream, text }
 
 import scala.concurrent.ExecutionContext
-
 object MkQueries extends IOApp {
 
+  import _root_.io.circe.generic.auto._
   import _root_.io.circe.parser._
+  import _root_.io.circe.syntax._
+  case class URNavHintingEvent(event: String,
+                               entityType: String,
+                               entityId: String,
+                               targetEntityId: Option[String] = None,
+                               properties: Map[String, Boolean] = Map.empty,
+                               conversionId: Option[String] = None,
+                               eventTime: String)
+      extends Event {
+    override def toString() =
+      this.asJson.noSpaces
+
+    override def getEvent          = event
+    override def getEntityId       = entityId
+    override def getTargetEntityId = targetEntityId.getOrElse("empty")
+  }
+
   private val fileName = "/Users/andrey/Downloads/kaggle_ecom_events.json"
   private val blockingExecutionContext =
     Resource.make(IO(ExecutionContext.fromExecutorService(Executors.newWorkStealingPool)))(ec => IO(ec.shutdown()))

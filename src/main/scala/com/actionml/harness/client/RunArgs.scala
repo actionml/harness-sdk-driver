@@ -8,7 +8,8 @@ case class RunArgs(
     harnessHost: String,
     harnessPort: Int,
     fileName: String,
-    input: Boolean
+    input: Boolean,
+    factor: Int
 )
 
 object RunArgs {
@@ -42,13 +43,23 @@ object RunArgs {
         opt[String]('f', "file")
           .required()
           .action((v, acc) => acc.copy(fileName = v))
-          .text("Path to the file with events")
+          .text("Path to the file with events"),
+        opt[Int]("factor")
+          .validate { i =>
+            if (i > 1) success
+            else failure("Option --factor should be > 0")
+          }
+          .action((v, acc) => acc.copy(factor = v))
+          .text("Skip all events except one of factor. E.g. if factor is 10, then only 1 event of 10 will be sent.")
       )
     }
     val setup: OParserSetup = new DefaultOParserSetup {
       override def showUsageOnError = Some(true)
     }
 
-    OParser.parse(parser, args, RunArgs(20, "test-ur", "localhost", 9090, "events.json", input = true), setup)
+    OParser.parse(parser,
+                  args,
+                  RunArgs(20, "test-ur", "localhost", 9090, "events.json", input = true, factor = 1),
+                  setup)
   }
 }
