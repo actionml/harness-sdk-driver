@@ -59,7 +59,7 @@ object RunArgs {
 
     OParser.parse(parser,
                   args,
-                  RunArgs(20, "test-ur", "localhost", 9090, "events.json", input = true, factor = 1),
+                  RunArgs(2, "test-ur", "localhost", 9090, "events.json", input = true, factor = 1),
                   setup)
   }
 }

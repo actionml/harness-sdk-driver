@@ -13,7 +13,7 @@ lazy val root = (project in file(".")).
       fs2_core,
       fs2_io,
       scopt,
-      java_sdk,
-      scalaTest % Test
+      spinoco_http,
+      java_sdk
     ) ++ circe
   ).enablePlugins(JavaAppPackaging)
