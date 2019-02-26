@@ -17,6 +17,7 @@ import spinoco.protocol.mime.ContentType.TextContent
 import spinoco.protocol.mime.{ MIMECharset, MediaType }
 
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
 
 object SendEventsApp extends IOApp {
 
@@ -27,40 +28,43 @@ object SendEventsApp extends IOApp {
 
     Stream.resource(blockingExecutionContext).flatMap { blockingEC =>
       implicit val ACG = AsynchronousChannelGroup.withThreadPool(blockingEC)
-      def sendEvent(s: String): IO[Unit] = {
+      def sendEvent(client: HttpClient[IO])(s: String): IO[Unit] = {
         implicit val jsonEncoder =
           BodyEncoder.utf8String.withContentType(TextContent(MediaType.`application/json`, Some(MIMECharset.`UTF-8`)))
-        for {
-          client <- http.client[IO]()
-          request = HttpRequest
-            .post[IO, String](Uri.http(args.harnessHost, args.harnessPort, s"/engines/${args.engineId}/events"), s)
-          _ <- client
-            .request(request)
-            .flatMap[IO, Attempt[String]] { r =>
-              if (r.header.status == HttpStatusCode.Created) Stream.eval(r.bodyAsString)
-              else Stream.eval(IO.raiseError(new RuntimeException("Wrong status code from server")))
-            }
-            .compile
-            .drain
-        } yield ()
+        val request = HttpRequest
+          .post[IO, String](Uri.http(args.harnessHost, args.harnessPort, s"/engines/${args.engineId}/events"), s)
+        client
+          .request(request)
+          .flatMap[IO, Attempt[String]] { r =>
+            if (r.header.status == HttpStatusCode.Created) Stream.eval(r.bodyAsString)
+            else Stream.eval(IO.raiseError(new RuntimeException("Wrong status code from server")))
+          }
+          .compile
+          .drain
       }
 
       val start = Instant.now
-      io.file
-        .readAll[IO](Paths.get(args.fileName), blockingEC, 4096)
-        .through(text.utf8Decode)
-        .through(text.lines)
-        .filter(s => !s.trim.isEmpty)
-        .parEvalMapUnordered(args.nThreads)(sendEvent)
-        .handleErrorWith { e =>
-          e.printStackTrace
-          fs2.Stream.empty
-        }
-        .onComplete {
-          val duration = Instant.now.toEpochMilli - start.toEpochMilli
-          println(s"Completed in $duration milliseconds (${duration / 1000 / 60} minutes)")
-          Stream.empty
-        }
+      var count = 0L
+      for {
+        client <- Stream.eval(http.client[IO]().timeout(10.seconds))
+        _ <- io.file
+          .readAll[IO](Paths.get(args.fileName), blockingEC, 4096)
+          .through(text.utf8Decode.andThen(text.lines))
+          .filter(_.trim.nonEmpty)
+//          .parEvalMapUnordered(args.nThreads)(sendEvent(client))
+          .evalMap(sendEvent(client))
+          .map(_ => count = count + 1)
+          .handleErrorWith { e =>
+            e.printStackTrace
+            fs2.Stream.empty
+          }
+          .onComplete {
+            val duration = Instant.now.toEpochMilli - start.toEpochMilli
+            println(s"Completed in $duration milliseconds (${duration / 1000 / 60} minutes)")
+            println(s"Sent $count events")
+            Stream.empty
+          }
+      } yield ()
     }
   }
 
