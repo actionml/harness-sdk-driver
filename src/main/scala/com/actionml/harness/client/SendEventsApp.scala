@@ -109,13 +109,13 @@ object SendEventsApp extends IOApp {
 
   def run(args: List[String]): IO[ExitCode] =
     RunArgs.parse(args) match {
-      case Some(a @ RunArgs(_, _, _, _, _, true, _)) =>
+      case Some(a @ RunArgs(_, _, _, _, _, _, true, _)) =>
         for {
           _ <- IO(println(s"Started 'input' with ${a.nThreads} threads"))
           status <- inputSender(a).compile.drain
             .as(ExitCode.Success)
         } yield status
-      case Some(a @ RunArgs(_, _, _, _, _, false, _)) =>
+      case Some(a @ RunArgs(_, _, _, _, _, _, false, _)) =>
         for {
           _ <- IO(println(s"Started 'query' with ${a.nThreads} threads"))
           status <- querySender(a).compile.drain

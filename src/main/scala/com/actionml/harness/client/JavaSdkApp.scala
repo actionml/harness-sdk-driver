@@ -25,7 +25,7 @@ import scala.util.{ Failure, Success }
 object JavaSdkApp {
   def main(args: Array[String]): Unit =
     RunArgs.parse(args) match {
-      case Some(a @ RunArgs(parallelism, _, _, _, _, true, _)) =>
+      case Some(a @ RunArgs(parallelism, _, _, _, _, _, true, _)) =>
         implicit val system = ActorSystem.apply("harness-load-test")
         val decider: akka.japi.function.Function[Throwable, Supervision.Directive] =
           new akka.japi.function.Function[Throwable, Supervision.Directive]() {
@@ -50,7 +50,7 @@ object JavaSdkApp {
             }
           })
           .via(Http().cachedHostConnectionPool[String](a.harnessHost, a.harnessPort))
-          .throttle(10, 1.second)
+          .throttle(a.nThreads, 1.second)
           .runFold(0) {
             case (acc, (Success(resp), event)) =>
               if (resp.status != StatusCodes.CREATED) println(s"WRONG STATUS CODE for event $event")

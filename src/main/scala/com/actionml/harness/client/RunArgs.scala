@@ -4,6 +4,7 @@ import scopt.{ DefaultOParserSetup, OParser, OParserSetup }
 
 case class RunArgs(
     nThreads: Int,
+    nPerSecond: Int,
     engineId: String,
     harnessHost: String,
     harnessPort: Int,
@@ -30,6 +31,9 @@ object RunArgs {
         opt[Int]('c', "max-concurrent")
           .action((v, acc) => acc.copy(nThreads = v))
           .text("Number of parallel connections"),
+        opt[Int]('r', "requests-per-second")
+          .action((v, acc) => acc.copy(nPerSecond = v))
+          .text("Number of requests sent per second"),
         opt[String]('e', "engine-id")
           .required()
           .action((v, acc) => acc.copy(engineId = v))
@@ -59,7 +63,7 @@ object RunArgs {
 
     OParser.parse(parser,
                   args,
-                  RunArgs(2, "test-ur", "localhost", 9090, "events.json", input = true, factor = 1),
+                  RunArgs(8, 10, "test-ur", "localhost", 9090, "events.json", input = true, factor = 1),
                   setup)
   }
 }
