@@ -50,7 +50,7 @@ object RunArgs {
           .text("Path to the file with events"),
         opt[Int]("factor")
           .validate { i =>
-            if (i > 1) success
+            if (i >= 1) success
             else failure("Option --factor should be > 0")
           }
           .action((v, acc) => acc.copy(factor = v))

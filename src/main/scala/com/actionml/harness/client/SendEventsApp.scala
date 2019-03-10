@@ -74,13 +74,8 @@ object SendEventsApp extends IOApp {
     )(ec => IO(ec.shutdown()))
 
     Stream.resource(blockingExecutionContext).flatMap { blockingEC =>
-//      def sendQuery(e: (String, String)): IO[Unit] =
       def sendQuery(e: String): IO[Unit] =
         ???
-//        for {
-//          _ <- IO(client.sendQuery(e._1))
-//          _ <- IO(client.sendQuery(e._2))
-//        } yield ()
 
       val start = Instant.now
       val s = io.file
