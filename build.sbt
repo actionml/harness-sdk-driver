@@ -1,3 +1,5 @@
+import sbt._
+import sbt.Keys.resolvers
 import Dependencies._
 
 lazy val root = (project in file(".")).
@@ -9,6 +11,8 @@ lazy val root = (project in file(".")).
     )),
     name := "Harness Client CLI",
     resolvers += Resolver.mavenLocal,
+    resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
+    resolvers += "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
     libraryDependencies ++= Seq(
       fs2_core,
       fs2_io,
