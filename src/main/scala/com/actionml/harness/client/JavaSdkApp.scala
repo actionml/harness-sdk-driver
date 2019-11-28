@@ -42,7 +42,7 @@ object JavaSdkApp {
         }
       })
       .via(Http().cachedHostConnectionPool[String](a.harnessHost, a.harnessPort))
-      .throttle(if (a.nPerSecond > 1) a.nPerSecond / 2 else 1, 1.second, a.nPerSecond, ThrottleMode.Shaping)
+      .throttle(1, 1.second, a.nPerSecond, ThrottleMode.Shaping)
       .runFold(0) {
         case (acc, (Success(resp), event)) =>
           if (resp.status != StatusCodes.CREATED) println(s"WRONG STATUS CODE for event $event")

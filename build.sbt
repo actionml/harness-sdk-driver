@@ -7,7 +7,7 @@ lazy val root = (project in file(".")).
       scalaVersion := "2.11.12",
       version      := "0.1.0-SNAPSHOT"
     )),
-    name := "Harness Client CLI",
+    name := "harness-load-test",
     resolvers += Resolver.mavenLocal,
     libraryDependencies ++= Seq(
       fs2_core,
