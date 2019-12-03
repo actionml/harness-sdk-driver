@@ -2,6 +2,10 @@ package com.actionml.harness.client
 
 import scopt.{ DefaultOParserSetup, OParser, OParserSetup }
 
+/*
+ @param nThreads - how many threads
+ @param nPerSecond - how many
+ */
 case class RunArgs(
     nThreads: Int,
     nPerSecond: Int,
@@ -54,7 +58,9 @@ object RunArgs {
             else failure("Option --factor should be > 0")
           }
           .action((v, acc) => acc.copy(factor = v))
-          .text("Skip all events except one of factor. E.g. if factor is 10, then only 1 event of 10 will be sent.")
+          .text(
+            "Skip all events except one of factor. E.g. if factor is 10, then only 1 event of the random value from 1 to 10 will be sent."
+          )
       )
     }
     val setup: OParserSetup = new DefaultOParserSetup {
@@ -63,7 +69,7 @@ object RunArgs {
 
     OParser.parse(parser,
                   args,
-                  RunArgs(8, 10, "test-ur", "localhost", 9090, "events.json", input = true, factor = 1),
+                  RunArgs(8, 10, "test-ur", "localhost", 9090, "events.json", input = true, factor = 10),
                   setup)
   }
 }

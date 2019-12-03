@@ -3,12 +3,12 @@ set -e
 
 ## Defaults
 #
-: ${NUM_NUM_OF_THREADS}
+: ${NUM_OF_THREADS}
 : ${REQUESTS_PER_SECOND}
 : ${ENGINE_ID:?must be set!}
 : ${HARNESS_HOST:?must be set!}
 : ${HARNESS_PORT}
-: ${INPUT}
 : ${FILE_NAME:?must be set!}
+: ${COMMAND:?must be set!}
 
-java -cp "/app/lib/*" com.actionml.harness.client.JavaSdkApp ${NUM_NUM_OF_THREADS} ${REQUESTS_PER_SECOND} ${ENGINE_ID} ${HARNESS_HOST} ${HARNESS_PORT} ${INPUT} ${FILE_NAME}
+java -cp "/app/lib/*" com.actionml.harness.client.JavaSdkApp ${COMMAND} -c ${NUM_OF_THREADS} -r ${REQUESTS_PER_SECOND} -e ${ENGINE_ID} -h ${HARNESS_HOST} -p ${HARNESS_PORT} -f ${FILE_NAME} --factor ${FACTOR}

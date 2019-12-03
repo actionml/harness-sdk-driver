@@ -5,17 +5,19 @@ ENV PATH $PATH:$JAVA_HOME/bin
 
 ENV NUM_OF_THREADS=2
 ENV REQUESTS_PER_SECOND=100
-ENV ENGINE_ID="test_ur"
+ENV ENGINE_ID="hb_per_test"
 ENV HARNESS_HOST="localhost"
 ENV HARNESS_PORT=9090
-ENV INPUT=true
+ENV COMMAND=input
 ENV FILE_NAME="events.json"
+ENV FACTOR=10
 
 RUN mkdir -p /app/lib/ && \
     adduser -Ds /bin/sh -h /app harness
 
 COPY ./target/universal/stage/lib/* /app/lib/
 COPY ./entrypoint.sh /app
+COPY events.json /app/
 WORKDIR /app
 ENTRYPOINT [ "/app/entrypoint.sh" ]
 
