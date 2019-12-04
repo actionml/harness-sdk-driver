@@ -19,6 +19,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.concurrent.{ Await, Future }
 import scala.language.postfixOps
+import scala.util.control.NonFatal
 import scala.util.{ Failure, Success, Try }
 
 case class SearchEvent(event: String = "",
@@ -32,7 +33,7 @@ object JavaSdkApp {
   private def runEvents(a: RunArgs)(implicit system: ActorSystem, mat: Materializer): Future[(Int, Int)] =
     FileIO
       .fromPath(Paths.get(a.fileName))
-      .via(Framing.delimiter(ByteString("\n"), 40960, allowTruncation = false).map(_.utf8String))
+      .via(Framing.delimiter(ByteString("\n"), 40960, allowTruncation = true).map(_.utf8String))
       .mapAsync(a.nThreads)(e => {
         Marshal(e).to[RequestEntity].map { entity =>
           HttpRequest(
@@ -56,7 +57,7 @@ object JavaSdkApp {
           (succeed, failed + 1)
       }
 
-  private def runSearch(a: RunArgs)(implicit system: ActorSystem, mat: Materializer): Unit = {
+  private def runSearch(a: RunArgs)(implicit system: ActorSystem, mat: Materializer): Future[Unit] = {
     import io.circe.generic.auto._
     import io.circe.parser._
 
@@ -64,11 +65,11 @@ object JavaSdkApp {
       s"""{"item":${event.getOrElse("targetEntityId", """ "" """)}}"""
     val mkUserQuery: Map[String, Any] => String = event => s"""{"user":${event.getOrElse("entityId", """ "" """)}}"""
 
-    def sendQueries(mkQuery: Map[String, Any] => String) =
+    def sendQueries(mkQuery: Map[String, Any] => String, targetEntityType: String) =
       FileIO
         .fromPath(Paths.get(a.fileName))
         .via(Framing.delimiter(ByteString("\n"), 4096, allowTruncation = true).map(_.utf8String))
-        .filter(_.contains(""""targetEntityId""""))
+        .filter(s => s.contains(""""targetEntityId"""") && s.contains(""""targetEntityType""""))
         .sliding(1, step = scala.util.Random.nextInt(a.factor) + 1)
         .map(_.head)
         .mapAsyncUnordered(a.nThreads) { e =>
@@ -100,9 +101,6 @@ object JavaSdkApp {
               resp.entity.getDataBytes().asScala.runForeach { body =>
                 if (resp.status != StatusCodes.CREATED) {
                   println(s"ERROR: WRONG STATUS CODE for search query $query")
-                } else if (body.utf8String.contains("[]")) {
-                  println("WARN: EMPTY RESPONSE BODY")
-                  true
                 } else {
                   goodResult = true
                   println(s"${body.utf8String} is a result for search $query")
@@ -128,14 +126,17 @@ object JavaSdkApp {
 
   private def runAndPrint(start: Instant, fn: Future[(Int, Int)]): Future[Unit] =
     fn.map {
-      case (s, f) =>
-        val dur = java.time.Duration.between(start, Instant.now).toMillis / 1000
-        println(s"Sent ${s + f} requests")
-        println(s"Succeeded $s")
-        println(s"Failed $f")
-        println(s"Took $dur seconds")
-        println(s"${(s + f) / (if (dur == 0) 1 else dur)} requests per second")
-    }
+        case (s, f) =>
+          val dur = java.time.Duration.between(start, Instant.now).toMillis / 1000
+          println(s"Sent ${s + f} requests")
+          println(s"Succeeded $s")
+          println(s"Failed $f")
+          println(s"Took $dur seconds")
+          println(s"${(s + f) / (if (dur == 0) 1 else dur)} requests per second")
+      }
+      .recover {
+        case NonFatal(e) => e.printStackTrace()
+      }
 
   def main(args: Array[String]): Unit = {
     implicit val system = ActorSystem.apply("harness-client")
@@ -152,10 +153,12 @@ object JavaSdkApp {
     RunArgs.parse(args) match {
       case Some(a @ RunArgs(_, _, _, _, _, _, true, _)) =>
         println("INPUT EVENTS:")
-        runAndPrint(Instant.now, runEvents(a))
+        Await.result(runAndPrint(Instant.now, runEvents(a)), Duration.Inf)
+        System.exit(0)
       case Some(a @ RunArgs(_, _, _, _, _, _, false, _)) =>
         println("SEARCH QUERIES:")
-        runSearch(a)
+        Await.result(runSearch(a), Duration.Inf)
+        System.exit(0)
       case _ =>
         System.exit(1)
     }

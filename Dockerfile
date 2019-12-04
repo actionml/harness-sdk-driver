@@ -13,12 +13,13 @@ ENV FILE_NAME="events.json"
 ENV FACTOR=10
 
 RUN mkdir -p /app/lib/ && \
-    adduser -Ds /bin/sh -h /app harness
+    adduser -Ds /bin/sh -h /app harness && \
+    apk add --no-cache tini
 
 COPY ./target/universal/stage/lib/* /app/lib/
 COPY ./entrypoint.sh /app
 COPY events.json /app/
 WORKDIR /app
-ENTRYPOINT [ "/app/entrypoint.sh" ]
+ENTRYPOINT ["/tini", "--", "/app/entrypoint.sh" ]
 
 USER harness:harness
