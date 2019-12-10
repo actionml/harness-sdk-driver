@@ -6,18 +6,16 @@ lazy val root = (project in file(".")).
   settings(
     inThisBuild(List(
       organization := "com.actionml",
-      scalaVersion := "2.11.12",
-      version      := "0.1.0-SNAPSHOT"
+      scalaVersion := "2.13.1",
+      version      := "0.2.0-SNAPSHOT"
     )),
+    addCompilerPlugin("org.typelevel" %% "kind-projector"     % "0.10.3"),
+    addCompilerPlugin("com.olegpy"    %% "better-monadic-for" % "0.3.0"),
     name := "harness-load-test",
     resolvers += Resolver.mavenLocal,
     resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     resolvers += "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
     libraryDependencies ++= Seq(
-      fs2_core,
-      fs2_io,
       scopt,
-      spinoco_http,
-      java_sdk
-    ) ++ circe
+    ) ++ circe ++ sttp ++ zio ++ http4s
   ).enablePlugins(JavaAppPackaging)

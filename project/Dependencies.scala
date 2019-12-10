@@ -1,14 +1,32 @@
 import sbt._
 
 object Dependencies {
-  lazy val fs2_core = "co.fs2" %% "fs2-core" % "1.0.0"
-  lazy val fs2_io   = "co.fs2" %% "fs2-io"   % "1.0.0"
-  lazy val circe = Seq(
-    "io.circe" %% "circe-core"    % "0.10.1",
-    "io.circe" %% "circe-parser"  % "0.10.1",
-    "io.circe" %% "circe-generic" % "0.10.1"
+  private val circeVersion = "0.12.3"
+  val circe = Seq(
+    "io.circe" %% "circe-core"    % circeVersion,
+    "io.circe" %% "circe-parser"  % circeVersion,
+    "io.circe" %% "circe-generic" % circeVersion,
+    "io.circe" %% "circe-literal" % circeVersion
   )
-  lazy val scopt        = "com.github.scopt" %% "scopt"           % "4.0.0-RC2"
-  lazy val spinoco_http = "com.spinoco"      %% "fs2-http"        % "0.4.1"
-  lazy val java_sdk     = "com.actionml"     % "harness-java-sdk" % "0.3.0"
+  val scopt    = "com.github.scopt" %% "scopt"           % "4.0.0-RC2"
+  val java_sdk = "com.actionml"     % "harness-java-sdk" % "0.3.0"
+  val zio = Seq(
+    "dev.zio" %% "zio"              % "1.0.0-RC17",
+    "dev.zio" %% "zio-streams"      % "1.0.0-RC17",
+    "dev.zio" %% "zio-interop-cats" % "2.0.0.0-RC10",
+  )
+  val sttp = Seq(
+    "com.softwaremill.sttp.client" %% "core"                          % "2.0.0-RC4",
+    "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC4",
+    "com.softwaremill.sttp.client" %% "circe"                         % "2.0.0-RC4",
+  )
+  private val http4sVersion = "0.21.0-M6"
+  val http4s = Seq(
+    "org.http4s"     %% "http4s-blaze-server"       % http4sVersion,
+    "org.http4s"     %% "http4s-blaze-client"       % http4sVersion,
+    "org.http4s"     %% "http4s-circe"              % http4sVersion,
+    "org.http4s"     %% "http4s-dsl"                % http4sVersion,
+    "org.http4s"     %% "http4s-prometheus-metrics" % http4sVersion,
+    "ch.qos.logback" % "logback-classic"            % "1.2.3"
+  )
 }
