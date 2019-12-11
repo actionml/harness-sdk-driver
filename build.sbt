@@ -17,5 +17,6 @@ lazy val root = (project in file(".")).
     resolvers += "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
     libraryDependencies ++= Seq(
       scopt,
+      logstage
     ) ++ circe ++ sttp ++ zio ++ http4s
   ).enablePlugins(JavaAppPackaging)

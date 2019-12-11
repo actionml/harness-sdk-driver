@@ -10,8 +10,7 @@ case class RunArgs(
     nThreads: Int,
     nPerSecond: Int,
     engineId: String,
-    harnessHost: String,
-    harnessPort: Int,
+    harnessUri: String,
     fileName: String,
     input: Boolean,
     factor: Int
@@ -42,12 +41,10 @@ object RunArgs {
           .required()
           .action((v, acc) => acc.copy(engineId = v))
           .text("Engine id"),
-        opt[String]('h', "host")
-          .action((v, acc) => acc.copy(harnessHost = v))
-          .text("Harness host"),
-        opt[Int]('p', "port")
-          .action((v, acc) => acc.copy(harnessPort = v))
-          .text("Harness port"),
+        opt[String]('u', "uri")
+          .action((u, acc) => acc.copy(harnessUri = u))
+          .text("Harness URI")
+          .required(),
         opt[String]('f', "file")
           .required()
           .action((v, acc) => acc.copy(fileName = v))
@@ -69,7 +66,7 @@ object RunArgs {
 
     OParser.parse(parser,
                   args,
-                  RunArgs(8, 10, "test-ur", "localhost", 9090, "events.json", input = true, factor = 10),
+                  RunArgs(8, 10, "test-ur", "http://localhost:9090", "events.json", input = true, factor = 10),
                   setup)
   }
 }

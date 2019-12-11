@@ -29,4 +29,5 @@ object Dependencies {
     "org.http4s"     %% "http4s-prometheus-metrics" % http4sVersion,
     "ch.qos.logback" % "logback-classic"            % "1.2.3"
   )
+  val logstage = "io.7mind.izumi" %% "logstage-core" % "0.10.0-M7"
 }
