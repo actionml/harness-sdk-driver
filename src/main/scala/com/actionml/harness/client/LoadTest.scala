@@ -98,16 +98,23 @@ object LoadTest extends App {
                   val responseTime = calcLatency(start)
                   log.trace(s"Got response for $requestNumber")
                   log.debug(s"Request $requestNumber got response in $responseTime ms")
-                  Results(1, 0, calcLatency(start))
+                  Results(1, 0, responseTime, responseTime)
                 }
-                .foldCause(_ => Results(0, 1, calcLatency(start)), a => a)
+                .foldCause(_ => {
+                  val l = calcLatency(start)
+                  Results(0, 1, l, l)
+                }, a => a)
           }
-          .run(Sink.foldLeft(Results(0, 0, 0)) { (acc: Results, i: Results) =>
-            acc.copy(succeeded = acc.succeeded + 1,
-                     failed = acc.failed,
-                     maxLatency = Math.max(acc.maxLatency, i.maxLatency))
+          .run(Sink.foldLeft((1, Results(0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
+            (acc._1 + 1,
+             acc._2.copy(
+               succeeded = acc._2.succeeded + 1,
+               failed = acc._2.failed,
+               maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
+               avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
+             ))
           })
-      } yield results
+      } yield results._2
     }
 
     def runSearches(httpClient: Client[Task], targetEntityType: String) = {
@@ -144,16 +151,23 @@ object LoadTest extends App {
                   val responseTime = calcLatency(start)
                   log.trace(s"Got response for $requestNumber")
                   log.debug(s"Request $requestNumber got response in $responseTime ms")
-                  Results(1, 0, responseTime)
+                  Results(1, 0, responseTime, responseTime)
                 }
-                .foldCause(_ => Results(0, 1, calcLatency(start)), a => a)
+                .foldCause(_ => {
+                  val l = calcLatency(start)
+                  Results(0, 1, l, l)
+                }, a => a)
           }
-          .run(Sink.foldLeft(Results(0, 0, 0)) { (acc: Results, i: Results) =>
-            acc.copy(succeeded = acc.succeeded + 1,
-                     failed = acc.failed,
-                     maxLatency = Math.max(acc.maxLatency, i.maxLatency))
+          .run(Sink.foldLeft((1, Results(0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
+            (acc._1 + 1,
+             acc._2.copy(
+               succeeded = acc._2.succeeded + 1,
+               failed = acc._2.failed,
+               maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
+               avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
+             ))
           })
-      } yield results
+      } yield results._2
     }
 
     def calcLatency(start: Long): Int = (System.currentTimeMillis() - start).toInt
@@ -166,7 +180,7 @@ object LoadTest extends App {
           results <- if (appArgs.input) runEvents(client) else runSearches(client, appArgs.entityType)
           requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000)
           _ = log.info(
-            s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms"
+            s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms, ${results.avgLatency} ms"
           )
         } yield 0
       }
@@ -177,7 +191,7 @@ object LoadTest extends App {
   }
 }
 
-final case class Results(succeeded: Int, failed: Int, maxLatency: Int)
+final case class Results(succeeded: Int, failed: Int, maxLatency: Int, avgLatency: Int)
 
 object zio2cats {
   object interop {
