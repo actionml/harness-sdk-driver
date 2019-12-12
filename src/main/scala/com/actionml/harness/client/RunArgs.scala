@@ -2,18 +2,17 @@ package com.actionml.harness.client
 
 import scopt.{ DefaultOParserSetup, OParser, OParserSetup }
 
-/*
- @param nThreads - how many threads
- @param nPerSecond - how many
- */
 case class RunArgs(
+    nCpus: Int,
     nThreads: Int,
-    nPerSecond: Int,
+    maxPerSecond: Int,
     engineId: String,
     harnessUri: String,
     fileName: String,
     input: Boolean,
-    factor: Int
+    entityType: String,
+    factor: Int,
+    isVerbose: Boolean
 )
 
 object RunArgs {
@@ -23,32 +22,43 @@ object RunArgs {
     val parser = {
       import builder._
       OParser.sequence(
-        programName("harness-events-cli.sh"),
-        head("harness events", "0.1"),
+        programName("harness-load-test.sh"),
+        head("harness load test", "0.2"),
         cmd("input")
           .required()
           .action((_, acc) => acc.copy(input = true)),
         cmd("query")
           .required()
           .action((_, acc) => acc.copy(input = false)),
-        opt[Int]('c', "max-concurrent")
+        opt[String]("entityType")
+          .action((t, acc) => acc.copy(entityType = t))
+          .text("Value of 'entityType' field to be used to create search queries"),
+        opt[Int]('c', "thread-pool-size")
+          .action((c, acc) => acc.copy(nCpus = c))
+          .text("Thread pool size"),
+        opt[Int]('n', "num-of-threads")
           .action((v, acc) => acc.copy(nThreads = v))
-          .text("Number of parallel connections"),
-        opt[Int]('r', "requests-per-second")
-          .action((v, acc) => acc.copy(nPerSecond = v))
-          .text("Number of requests sent per second"),
+          .text("Number of parallel threads"),
+        opt[Int]('r', "max-requests-per-second")
+          .action((v, acc) => acc.copy(maxPerSecond = v))
+          .text("Maximum number of requests sent per second"),
         opt[String]('e', "engine-id")
           .required()
           .action((v, acc) => acc.copy(engineId = v))
           .text("Engine id"),
         opt[String]('u', "uri")
           .action((u, acc) => acc.copy(harnessUri = u))
-          .text("Harness URI")
+          .text("Harness server URI")
           .required(),
         opt[String]('f', "file")
           .required()
           .action((v, acc) => acc.copy(fileName = v))
-          .text("Path to the file with events"),
+          .text(
+            "Path to the file with events. It can be a path to the file or directory. E.g. /tmp/event.json or /tmp. Directory means that all of it's files will be sent"
+          ),
+        opt[Unit]('v', "verbose")
+          .action((_, acc) => acc.copy(isVerbose = true))
+          .text("More info"),
         opt[Int]("factor")
           .validate { i =>
             if (i >= 1) success
@@ -64,9 +74,20 @@ object RunArgs {
       override def showUsageOnError = Some(true)
     }
 
-    OParser.parse(parser,
-                  args,
-                  RunArgs(8, 10, "test-ur", "http://localhost:9090", "events.json", input = true, factor = 10),
-                  setup)
+    OParser.parse(
+      parser,
+      args,
+      RunArgs(nCpus = 4,
+              nThreads = 32,
+              maxPerSecond = 10000,
+              "test-ur",
+              "http://localhost:9090",
+              "events.json",
+              input = true,
+              entityType = "user",
+              factor = 10,
+              isVerbose = false),
+      setup
+    )
   }
 }
