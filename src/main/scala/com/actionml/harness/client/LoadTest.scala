@@ -1,5 +1,6 @@
 package com.actionml.harness.client
 
+import java.io.FileInputStream
 import java.util.concurrent._
 
 import cats.arrow.FunctionK
@@ -20,17 +21,16 @@ import org.http4s.client.dsl.io._
 import org.http4s.client.{ Client, _ }
 import org.http4s.dsl.io._
 import org.http4s.{ EntityBody, Request, Uri }
-import zio.ZIO.BracketRelease
 import zio._
+import zio.duration._
 import zio.interop.catz._
-import zio.stream.{ Sink, ZStream }
+import zio.stream.{ Sink, ZSink, ZStream }
 
 import scala.concurrent.ExecutionContext
-import scala.io.{ BufferedSource, Source }
 
 object LoadTest extends App {
 
-  override def run(args: List[String]): ZIO[zio.ZEnv, Nothing, Int] = {
+  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] = {
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log =
       IzLogger(if (appArgs.isVerbose) Debug else Info, Seq(ConsoleSink.text(colored = false), DefaultFileSink("logs")))
@@ -41,10 +41,14 @@ object LoadTest extends App {
       ZManaged.make(ZIO(httpClient))(_ => URIO.unit)
     }
 
-    def requestMaker(uri: Uri)(body: String): Request[Task] = {
-      val j = parse(body).getOrElse(throw new RuntimeException)
-      POST(json"""$j""", uri).unsafeRunSync()
-    }
+    def requestMaker(uri: Uri)(body: String): Request[Task] =
+      parse(body) match {
+        case Right(j) =>
+          POST(json"""$j""", uri).unsafeRunSync()
+        case Left(f) =>
+          log.error(s"Error ${f.message} on parsing $body")
+          throw new RuntimeException(f.message, f.underlying)
+      }
 
     def mkUri: Uri =
       Uri
@@ -53,31 +57,27 @@ object LoadTest extends App {
         )
         .getOrElse(throw new RuntimeException)
 
-    def linesFromFiles(s: String): Task[Iterable[String]] = {
-      def fileSource(path: String): BracketRelease[Any, Throwable, Seq[BufferedSource]] =
-        ZIO.bracket(Task {
-          val fileOrDir = new java.io.File(path)
-          val files     = if (fileOrDir.isDirectory) fileOrDir.listFiles().toSeq else Seq(fileOrDir)
-          files.map(Source.fromFile(_, "UTF-8"))
-        })(sources => URIO(sources.foreach(_.close())))
-
-      fileSource(s).apply { ss: Seq[BufferedSource] =>
-        ZIO(ss.toIterable.flatMap { s: BufferedSource =>
-          s.getLines.to(Iterable)
-        })
-      }
+    def linesFromPath(s: String): ZStream[Any, Nothing, String] = {
+      val fileOrDir = new java.io.File(s)
+      val files     = if (fileOrDir.isDirectory) fileOrDir.listFiles().toSeq else Seq(fileOrDir)
+      files
+        .map(new FileInputStream(_))
+        .map(ZStream.fromInputStream(_, 512).mapErrorCause(_ => Cause.empty))
+        .reduce(_ ++ _)
+        .chunks
+        .transduce(ZSink.utf8DecodeChunk)
+        .transduce(ZSink.splitLines)
+        .flatMap(ZStream.fromChunk)
     }
 
-    def runEvents(httpClient: Client[Task]): Task[Results] = {
+    def runEvents(httpClient: Client[Task]): ZIO[ZEnv, Throwable, Results] = {
       val mkRequest = requestMaker(mkUri)(_)
       log.info("Starting events")
       for {
-        lines <- linesFromFiles(appArgs.fileName)
-        results <- zio.stream.Stream
-          .fromIterable(lines)
+        results <- linesFromPath(appArgs.fileName)
           .map(mkRequest)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
-//          .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
+          .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
             case (requestNumber, request) =>
               val start = System.currentTimeMillis()
@@ -124,13 +124,11 @@ object LoadTest extends App {
       val mkRequest = requestMaker(mkUri)(_)
       log.debug(s"Starting search queries for $targetEntityType")
       for {
-        lines <- linesFromFiles(appArgs.fileName)
-        results <- zio.stream.Stream
-          .fromIterable(lines)
+        results <- linesFromPath(appArgs.fileName)
           .flatMap(mkSearchString)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
           .map { case (n, s) => (n, mkRequest(s)) }
-//          .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
+          .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
             case (requestNumber, request) =>
               val start = System.currentTimeMillis()
