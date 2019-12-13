@@ -2,10 +2,9 @@ package com.actionml.harness.client
 
 import java.util.concurrent._
 
-import zio.duration._
 import cats.arrow.FunctionK
 import cats.effect
-import cats.effect.{ Blocker, Clock }
+import cats.effect.Blocker
 import com.actionml.harness.client.zio2cats.interop._
 import io.circe.Json
 import io.circe.literal._
@@ -18,10 +17,8 @@ import izumi.logstage.sink.file.{ FileServiceImpl, FileSink }
 import logstage._
 import org.http4s.circe._
 import org.http4s.client.dsl.io._
-import org.http4s.client.middleware.Metrics
 import org.http4s.client.{ Client, _ }
 import org.http4s.dsl.io._
-import org.http4s.metrics.prometheus.Prometheus
 import org.http4s.{ EntityBody, Request, Uri }
 import zio.ZIO.BracketRelease
 import zio._
@@ -41,13 +38,6 @@ object LoadTest extends App {
       val blockingEC =
         Blocker.liftExecutionContext(ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(appArgs.nCpus)))
       val httpClient = JavaNetClientBuilder[Task](blockingEC).create
-//      val requestMethodClassifier = (r: Request[Task]) => Some(r.method.toString.toLowerCase)
-//      implicit val clock          = Clock.create[Task]
-
-//      (for {
-//        registry <- Prometheus.collectorRegistry[Task]
-//        metrics  <- Prometheus.metricsOps[Task](registry, "harness_load_test")
-//      } yield Metrics[Task](metrics, requestMethodClassifier)(httpClient)).toManagedZIO
       ZManaged.make(ZIO(httpClient))(_ => URIO.unit)
     }
 

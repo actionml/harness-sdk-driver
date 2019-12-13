@@ -22,12 +22,10 @@ object Dependencies {
   )
   private val http4sVersion = "0.21.0-M6"
   val http4s = Seq(
-    "org.http4s"     %% "http4s-blaze-server"       % http4sVersion,
-    "org.http4s"     %% "http4s-blaze-client"       % http4sVersion,
-    "org.http4s"     %% "http4s-circe"              % http4sVersion,
-    "org.http4s"     %% "http4s-dsl"                % http4sVersion,
-    "org.http4s"     %% "http4s-prometheus-metrics" % http4sVersion,
-    "ch.qos.logback" % "logback-classic"            % "1.2.3"
+    "org.http4s"     %% "http4s-blaze-client" % http4sVersion,
+    "org.http4s"     %% "http4s-circe"        % http4sVersion,
+    "org.http4s"     %% "http4s-dsl"          % http4sVersion,
+    "ch.qos.logback" % "logback-classic"      % "1.2.3"
   )
   val logstage = "io.7mind.izumi" %% "logstage-core" % "0.10.0-M7"
 }

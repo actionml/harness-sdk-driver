@@ -19,5 +19,5 @@ lazy val root = (project in file(".")).
     libraryDependencies ++= Seq(
       scopt,
       logstage
-    ) ++ circe ++ sttp ++ zio ++ http4s
+    ) ++ circe ++ zio ++ http4s
   ).enablePlugins(JavaAppPackaging)
