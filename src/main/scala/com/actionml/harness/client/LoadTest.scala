@@ -79,7 +79,7 @@ object LoadTest extends App {
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
-            case (requestNumber, request) =>
+            case (requestNumber, request) if requestNumber % appArgs.factor == 0 =>
               val start = System.currentTimeMillis()
               log.trace(s"Sending $requestNumber $request")
               httpClient
