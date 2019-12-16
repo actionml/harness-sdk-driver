@@ -14,6 +14,7 @@ This tool uses the Java/Scala Client SDK for Harness to send events , input or q
     sudo apt-get update
     sudo apt-get install sbt
     ```
+    or download from <https://www.scala-sbt.org/download.html>
 * install `jdk`
     
     Debian/Ubuntu:
@@ -31,38 +32,39 @@ This step will be unneeded as we get the Client SDK published to a place findabl
 * `sudo apt install maven`
 
 * build the Java Client to install the lib for use in building the tool
-    * `git clone https://github.com/actionml/harness-java-sdk.git`
-    * `cd harness-java-sdk`
+    * `git clone https://github.com/actionml/harness-sdk-driver.git`
+    * `cd harness-sdk-driver`
     * `mvn install`
 
 ## Build and Run the Tool
   
 * `sbt compile stage`
-* `./harness-events-cli.sh`
+* `./harness-load-test.sh`
     
     Help:
     
-    ```
-    Slf4jLogger started
-    Error: Missing option --engine-id
-    Error: Missing option --file
-    harness events 0.1
-    Usage: harness-events-cli.sh [input|query] [options]
-    
-    Command: input
-    
-    Command: query
-    
-      -c, --max-concurrent <value>
-                               Number of parallel connections
-      -r, --requests-per-second <value>
-                               Number of requests sent per second
-      -e, --engine-id <value>  Engine id
-      -h, --host <value>       Harness host
-      -p, --port <value>       Harness port
-      -f, --file <value>       Path to the file with events
-      --factor <value>         Skip all events except one of factor. E.g. if factor is 10, then only 1 event of 10 will be sent.
-    ```
+```
+harness load test 0.2
+Usage: harness-load-test.sh [input|query] [options]
+
+Command: input
+
+Command: query
+
+  --entityType <value>     Value of 'entityType' field to be used to create search queries
+  -c, --thread-pool-size <value>
+                           Thread pool size
+  -n, --num-of-threads <value>
+                           Number of parallel threads
+  -r, --max-requests-per-second <value>
+                           Maximum number of requests sent per second
+  -e, --engine-id <value>  Engine id
+  -u, --uri <value>        Harness server URI
+  -f, --file <value>       Path to the file with events. It can be a path to the file or directory. E.g. /tmp/event.json or /tmp. Directory means that all of it's files will be sent
+  -v, --verbose            More info
+  --factor <value>         Skip all events except one of factor. E.g. if factor is 10, then only 1 event of the random value from 1 to 10 will be sent.
+  
+  ```
 
 ## Usage
 
@@ -74,8 +76,8 @@ To send a file that contains one event in JSON per line of text, do the followin
 harness-events-cli.sh input \
    -f </path/to/file> \
    -e <some-engine-id> \
-   -h <some-harness-address> \
-   -c <some-number-of-connections>
+   -u <some-harness-uri> \
+   -n <some-number-of-connections>
 ```
 
 To speed the transfer, specify as many parallel connections as possible. To send many files, concatenate them first into one file.
