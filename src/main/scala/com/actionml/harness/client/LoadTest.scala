@@ -77,9 +77,10 @@ object LoadTest extends App {
         results <- linesFromPath(appArgs.fileName)
           .map(mkRequest)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
+          .filter { case (n, _) => (n % appArgs.factor) == 0 }
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
-            case (requestNumber, request) if requestNumber % appArgs.factor == 0 =>
+            case (requestNumber, request) =>
               val start = System.currentTimeMillis()
               log.trace(s"Sending $requestNumber $request")
               httpClient
