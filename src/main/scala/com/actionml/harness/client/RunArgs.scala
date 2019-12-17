@@ -10,9 +10,10 @@ case class RunArgs(
     harnessUri: String,
     fileName: String,
     input: Boolean,
-    entityType: String,
+    isUserBased: Boolean,
     factor: Int,
-    isVerbose: Boolean
+    isVerbose: Boolean,
+    isVVerbose: Boolean
 )
 
 object RunArgs {
@@ -30,9 +31,12 @@ object RunArgs {
         cmd("query")
           .required()
           .action((_, acc) => acc.copy(input = false)),
-        opt[String]("entityType")
-          .action((t, acc) => acc.copy(entityType = t))
-          .text("Value of 'entityType' field to be used to create search queries"),
+        opt[Unit]("user-based")
+          .action((_, acc) => acc.copy(isUserBased = true))
+          .text("Indicator for queries. Sends user-based queries."),
+        opt[Unit]("item-based")
+          .action((_, acc) => acc.copy(isUserBased = false))
+          .text("Indicator for queries. Sends item-based queries."),
         opt[Int]('c', "thread-pool-size")
           .action((c, acc) => acc.copy(nCpus = c))
           .text("Thread pool size"),
@@ -59,6 +63,9 @@ object RunArgs {
         opt[Unit]('v', "verbose")
           .action((_, acc) => acc.copy(isVerbose = true))
           .text("More info"),
+        opt[Unit]("vv")
+          .action((_, acc) => acc.copy(isVVerbose = true))
+          .text("Even more info"),
         opt[Int]("factor")
           .validate { i =>
             if (i >= 1) success
@@ -77,16 +84,19 @@ object RunArgs {
     OParser.parse(
       parser,
       args,
-      RunArgs(nCpus = 4,
-              nThreads = 32,
-              maxPerSecond = 10000,
-              "test-ur",
-              "http://localhost:9090",
-              "events.json",
-              input = true,
-              entityType = "user",
-              factor = 10,
-              isVerbose = false),
+      RunArgs(
+        nCpus = 4,
+        nThreads = 32,
+        maxPerSecond = 10000,
+        "test-ur",
+        "http://localhost:9090",
+        "events.json",
+        input = true,
+        isUserBased = false,
+        factor = 1,
+        isVerbose = false,
+        isVVerbose = false
+      ),
       setup
     )
   }

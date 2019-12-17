@@ -32,8 +32,8 @@ object LoadTest extends App {
 
   override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] = {
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
-    val log =
-      IzLogger(if (appArgs.isVerbose) Debug else Info, Seq(ConsoleSink.text(colored = false), DefaultFileSink("logs")))
+    val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
+                       Seq(ConsoleSink.text(colored = true), DefaultFileSink("logs")))
     def mkHttp4sClient: ZManaged[Any, Throwable, Client[Task]] = {
       val blockingEC =
         Blocker.liftExecutionContext(ExecutionContext.fromExecutorService(Executors.newFixedThreadPool(appArgs.nCpus)))
@@ -108,22 +108,26 @@ object LoadTest extends App {
       } yield results._2
     }
 
-    def runSearches(httpClient: Client[Task], targetEntityType: String) = {
+    def runSearches(httpClient: Client[Task], user: Boolean) = {
+      val eType      = if (user) "entityType" else "targetEntityType"
+      val eIdType    = if (user) "entityId" else "targetEntityId"
+      val eTypeValue = if (user) "user" else "item"
       def mkSearchString(s: String): zio.stream.Stream[Any, String] = {
         val j = parse(s).getOrElse(Json.Null).dropNullValues
         val entityType = j.hcursor
-          .downField("entityType")
+          .downField(eType)
           .as[String]
-        val isTarget = entityType.contains(targetEntityType)
+        val isTarget = entityType.contains(eTypeValue)
         if (isTarget)
           ZStream.fromIterable(
-            j.hcursor.downField("entityId").as[String].toOption.map(id => s"""{"$targetEntityType": "$id"}""")
+            j.hcursor.downField(eIdType).as[String].toOption.map(id => s"""{"$eType": "$id"}""")
           )
         else ZStream.empty
       }
 
-      val mkRequest = requestMaker(mkUri)(_)
-      log.debug(s"Starting search queries for $targetEntityType")
+      val mkRequest   = requestMaker(mkUri)(_)
+      val queriesType = if (user) "user-based" else "item-based"
+      log.debug(s"Starting queries, $queriesType")
       for {
         results <- linesFromPath(appArgs.fileName)
           .flatMap(mkSearchString)
@@ -166,7 +170,7 @@ object LoadTest extends App {
         log.info(s"Running with arguments: $appArgs")
         val start = System.currentTimeMillis()
         for {
-          results <- if (appArgs.input) runEvents(client) else runSearches(client, appArgs.entityType)
+          results <- if (appArgs.input) runEvents(client) else runSearches(client, appArgs.isUserBased)
           requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000)
           _ = log.info(
             s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms, ${results.avgLatency} ms"
