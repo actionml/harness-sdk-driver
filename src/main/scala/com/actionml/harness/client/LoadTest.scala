@@ -77,7 +77,6 @@ object LoadTest extends App {
         results <- linesFromPath(appArgs.fileName)
           .map(mkRequest)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
-          .filter { case (n, _) => (n % appArgs.factor) == 0 }
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
             case (requestNumber, request) =>
@@ -132,6 +131,7 @@ object LoadTest extends App {
         results <- linesFromPath(appArgs.fileName)
           .flatMap(mkSearchString)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
+          .filter { case (n, _) => n % appArgs.factor == 0 }
           .map { case (n, s) => (n, mkRequest(s)) }
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
