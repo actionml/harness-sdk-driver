@@ -77,6 +77,7 @@ object LoadTest extends App {
         results <- linesFromPath(appArgs.fileName)
           .map(mkRequest)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
+          .filter { case (n, _) => n % appArgs.factor == 0 }
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
             case (requestNumber, request) =>
@@ -98,8 +99,8 @@ object LoadTest extends App {
           .run(Sink.foldLeft((1, Results(0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
             (acc._1 + 1,
              acc._2.copy(
-               succeeded = acc._2.succeeded + 1,
-               failed = acc._2.failed,
+               succeeded = acc._2.succeeded + result.succeeded,
+               failed = acc._2.failed + result.failed,
                maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
                avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
              ))
@@ -154,8 +155,8 @@ object LoadTest extends App {
           .run(Sink.foldLeft((1, Results(0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
             (acc._1 + 1,
              acc._2.copy(
-               succeeded = acc._2.succeeded + 1,
-               failed = acc._2.failed,
+               succeeded = acc._2.succeeded + result.succeeded,
+               failed = acc._2.failed + result.failed,
                maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
                avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
              ))
