@@ -120,7 +120,7 @@ object LoadTest extends App {
         val isTarget = entityType.contains(eTypeValue)
         if (isTarget)
           ZStream.fromIterable(
-            j.hcursor.downField(eIdType).as[String].toOption.map(id => s"""{"$eType": "$id"}""")
+            j.hcursor.downField(eIdType).as[String].toOption.map(id => s"""{"$eTypeValue": "$id"}""")
           )
         else ZStream.empty
       }
