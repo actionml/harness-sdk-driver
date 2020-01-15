@@ -11,6 +11,8 @@ case class RunArgs(
     fileName: String,
     input: Boolean,
     isUserBased: Boolean,
+    isAllItems: Boolean,
+    filterByItemEvent: String,
     factor: Int,
     isVerbose: Boolean,
     isVVerbose: Boolean
@@ -18,7 +20,6 @@ case class RunArgs(
 
 object RunArgs {
   def parse(args: Seq[String]): Option[RunArgs] = {
-
     val builder = OParser.builder[RunArgs]
     val parser = {
       import builder._
@@ -37,6 +38,12 @@ object RunArgs {
         opt[Unit]("item-based")
           .action((_, acc) => acc.copy(isUserBased = false))
           .text("Indicator for queries. Sends item-based queries."),
+        opt[Unit]("all-items")
+          .action((_, acc) => acc.copy(isAllItems = true))
+          .text("Forces to send all item-based queries, not just 'buy' queries"),
+        opt[String]("filter-by-item-event")
+          .action((v, acc) => acc.copy(filterByItemEvent = v))
+          .text("Filter item-based queries by this event"),
         opt[Int]('c', "thread-pool-size")
           .action((c, acc) => acc.copy(nCpus = c))
           .text("Thread pool size"),
@@ -93,6 +100,8 @@ object RunArgs {
         "events.json",
         input = true,
         isUserBased = false,
+        isAllItems = false,
+        filterByItemEvent = "buy",
         factor = 1,
         isVerbose = false,
         isVVerbose = false

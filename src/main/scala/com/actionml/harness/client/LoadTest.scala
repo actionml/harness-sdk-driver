@@ -117,17 +117,16 @@ object LoadTest extends App {
         val entityType = j.hcursor
           .downField(eType)
           .as[String]
+        val event    = j.hcursor.downField("event").as[String]
         val isTarget = entityType.contains(eTypeValue)
-        if (isTarget)
+        if (isTarget && (appArgs.isUserBased || (appArgs.isAllItems || (event.contains(appArgs.filterByItemEvent)))))
           ZStream.fromIterable(
             j.hcursor.downField(eIdType).as[String].toOption.map(id => s"""{"$eTypeValue": "$id"}""")
           )
         else ZStream.empty
       }
 
-      val mkRequest   = requestMaker(mkUri)(_)
-      val queriesType = if (user) "user-based" else "item-based"
-      log.debug(s"Starting queries, $queriesType")
+      val mkRequest = requestMaker(mkUri)(_)
       for {
         results <- linesFromPath(appArgs.fileName)
           .flatMap(mkSearchString)
