@@ -16,9 +16,9 @@ object Dependencies {
     "dev.zio" %% "zio-interop-cats" % "2.0.0.0-RC10",
   )
   val sttp = Seq(
-    "com.softwaremill.sttp.client" %% "core"                          % "2.0.0-RC4",
-    "com.softwaremill.sttp.client" %% "async-http-client-backend-zio" % "2.0.0-RC4",
-    "com.softwaremill.sttp.client" %% "circe"                         % "2.0.0-RC4",
+    "com.softwaremill.sttp.client" %% "core"                                  % "2.0.0-RC6",
+    "com.softwaremill.sttp.client" %% "async-http-client-backend-zio-streams" % "2.0.0-RC6",
+    "com.softwaremill.sttp.client" %% "circe"                                 % "2.0.0-RC6"
   )
   private val http4sVersion = "0.21.0-M6"
   val http4s = Seq(

@@ -3,11 +3,10 @@ package com.actionml.harness.client
 import scopt.{ DefaultOParserSetup, OParser, OParserSetup }
 
 case class RunArgs(
-    nCpus: Int,
     nThreads: Int,
     maxPerSecond: Int,
     engineId: String,
-    harnessUri: String,
+    uri: String,
     fileName: String,
     input: Boolean,
     isUserBased: Boolean,
@@ -44,9 +43,6 @@ object RunArgs {
         opt[String]("filter-by-item-event")
           .action((v, acc) => acc.copy(filterByItemEvent = v))
           .text("Filter item-based queries by this event"),
-        opt[Int]('c', "thread-pool-size")
-          .action((c, acc) => acc.copy(nCpus = c))
-          .text("Thread pool size"),
         opt[Int]('n', "num-of-threads")
           .action((v, acc) => acc.copy(nThreads = v))
           .text("Number of parallel threads"),
@@ -58,7 +54,7 @@ object RunArgs {
           .action((v, acc) => acc.copy(engineId = v))
           .text("Engine id"),
         opt[String]('u', "uri")
-          .action((u, acc) => acc.copy(harnessUri = u))
+          .action((u, acc) => acc.copy(uri = u))
           .text("Harness server URI")
           .required(),
         opt[String]('f', "file")
@@ -92,12 +88,11 @@ object RunArgs {
       parser,
       args,
       RunArgs(
-        nCpus = 4,
-        nThreads = 32,
+        nThreads = 8,
         maxPerSecond = 10000,
-        "test-ur",
-        "http://localhost:9090",
-        "events.json",
+        engineId = "test-ur",
+        uri = "http://localhost:9090",
+        fileName = "events.json",
         input = true,
         isUserBased = false,
         isAllItems = false,
