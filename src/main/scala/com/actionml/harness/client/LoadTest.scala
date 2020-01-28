@@ -29,9 +29,10 @@ object LoadTest extends App {
     val uri = uri"""${appArgs.uri}/engines/${appArgs.engineId}/${if (appArgs.input) "events"
     else "queries"}"""
 
-    def runEvents: ZIO[ZEnv, Throwable, Results] =
+    def runEvents: ZIO[ZEnv, Throwable, (Long, Results)] =
       for {
         httpBackend <- AsyncHttpClientZioStreamsBackend(this)
+        globalStart = System.currentTimeMillis()
         results <- linesFromPath(appArgs.fileName)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
           .filter { case (n, _) => n % appArgs.factor == 0 }
@@ -62,9 +63,9 @@ object LoadTest extends App {
                avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
              ))
           })
-      } yield results._2
+      } yield (globalStart, results._2)
 
-    def runQueries(user: Boolean): ZIO[ZEnv, Throwable, Results] = {
+    def runQueries(user: Boolean): ZIO[ZEnv, Throwable, (Long, Results)] = {
       val eType      = if (user) "entityType" else "targetEntityType"
       val eIdType    = if (user) "entityId" else "targetEntityId"
       val eTypeValue = if (user) "user" else "item"
@@ -92,6 +93,7 @@ object LoadTest extends App {
 
       for {
         httpBackend <- AsyncHttpClientZioStreamsBackend(this)
+        globalStart = System.currentTimeMillis()
         results <- linesFromPath(tmpFile)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
           .filter { case (n, _) => n % appArgs.factor == 0 }
@@ -121,15 +123,14 @@ object LoadTest extends App {
                avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
              ))
           })
-      } yield results._2
+      } yield (globalStart, results._2)
     }
 
     def calcLatency(start: Long): Int = (System.currentTimeMillis() - start).toInt
 
     log.info(s"Running with arguments: $appArgs")
-    val start = System.currentTimeMillis()
     (for {
-      results <- if (appArgs.input) runEvents else runQueries(appArgs.isUserBased)
+      (start, results) <- if (appArgs.input) runEvents else runQueries(appArgs.isUserBased)
       requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000)
       _ = log.info(
         s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms, ${results.avgLatency} ms"
