@@ -1,6 +1,6 @@
 package com.actionml.harness.client
 
-import java.io.FileInputStream
+import java.io.{ FileInputStream, PrintWriter }
 
 import io.circe.Json
 import io.circe.literal._
@@ -16,6 +16,8 @@ import sttp.client.asynchttpclient.ziostreams.AsyncHttpClientZioStreamsBackend
 import zio._
 import zio.duration._
 import zio.stream.{ Sink, ZSink, ZStream }
+
+import scala.util.Using
 
 object LoadTest extends App {
 
@@ -66,6 +68,7 @@ object LoadTest extends App {
       val eType      = if (user) "entityType" else "targetEntityType"
       val eIdType    = if (user) "entityId" else "targetEntityId"
       val eTypeValue = if (user) "user" else "item"
+      val tmpFile    = s"essearchqueries-$eTypeValue.json"
       def mkSearchString(s: String): zio.stream.Stream[Throwable, String] = {
         val j = parse(s).getOrElse(Json.Null).dropNullValues
         val entityType = j.hcursor
@@ -79,13 +82,19 @@ object LoadTest extends App {
           )
         else ZStream.empty
       }
+      Using.resource(new PrintWriter(tmpFile)) { writer =>
+        new DefaultRuntime {}.unsafeRun(
+          linesFromPath(appArgs.fileName)
+            .flatMap(mkSearchString)
+            .foreach(s => ZIO.effect(writer.println(s)))
+        )
+      }
 
       for {
         httpBackend <- AsyncHttpClientZioStreamsBackend(this)
-        results <- linesFromPath(appArgs.fileName)
+        results <- linesFromPath(tmpFile)
           .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
           .filter { case (n, _) => n % appArgs.factor == 0 }
-          .flatMap { case (n, s) => mkSearchString(s).map(n -> _) }
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
             case (requestNumber, request) =>
