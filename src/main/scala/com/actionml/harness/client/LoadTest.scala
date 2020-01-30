@@ -77,7 +77,7 @@ object LoadTest extends App {
           .as[String]
         val event    = j.hcursor.downField("event").as[String]
         val isTarget = entityType.contains(eTypeValue)
-        if (isTarget && (appArgs.isUserBased || (appArgs.isAllItems || (event.contains(appArgs.filterByItemEvent)))))
+        if (isTarget && (appArgs.isAllItems || event.contains(appArgs.filterByItemEvent)))
           ZStream.fromIterable(
             j.hcursor.downField(eIdType).as[String].toOption.map(id => s"""{"$eTypeValue": "$id"}""")
           )
@@ -133,7 +133,7 @@ object LoadTest extends App {
     log.info(s"Started with arguments: $appArgs")
     (for {
       (start, results) <- if (appArgs.input) runEvents else runQueries(appArgs.isUserBased)
-      requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000)
+      requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000 + 1)
       _ = log.info(
         s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms, ${results.avgLatency} ms"
       )
