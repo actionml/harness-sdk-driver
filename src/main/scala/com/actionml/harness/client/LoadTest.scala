@@ -1,6 +1,6 @@
 package com.actionml.harness.client
 
-import java.io.{ FileInputStream, PrintWriter }
+import java.io.PrintWriter
 
 import io.circe.Json
 import io.circe.literal._
@@ -15,7 +15,7 @@ import sttp.client._
 import sttp.client.asynchttpclient.ziostreams.AsyncHttpClientZioStreamsBackend
 import zio._
 import zio.duration._
-import zio.stream.{ Sink, ZSink, ZStream }
+import zio.stream.{ Sink, ZStream }
 
 import scala.util.Using
 
@@ -83,6 +83,7 @@ object LoadTest extends App {
           )
         else ZStream.empty
       }
+      val tmpStart = System.currentTimeMillis()
       Using.resource(new PrintWriter(tmpFile)) { writer =>
         new DefaultRuntime {}.unsafeRun(
           linesFromPath(appArgs.fileName)
@@ -90,6 +91,7 @@ object LoadTest extends App {
             .foreach(s => ZIO.effect(writer.println(s)))
         )
       }
+      log.info(s"Preparation stage took ${System.currentTimeMillis() - tmpStart} ms")
 
       for {
         httpBackend <- AsyncHttpClientZioStreamsBackend(this)
@@ -128,7 +130,7 @@ object LoadTest extends App {
 
     def calcLatency(start: Long): Int = (System.currentTimeMillis() - start).toInt
 
-    log.info(s"Running with arguments: $appArgs")
+    log.info(s"Started with arguments: $appArgs")
     (for {
       (start, results) <- if (appArgs.input) runEvents else runQueries(appArgs.isUserBased)
       requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000)
