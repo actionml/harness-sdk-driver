@@ -15,7 +15,7 @@ object RunAgainstElasticsearch extends App {
     import Utils._
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
-                       Seq(ConsoleSink.text(colored = true), DefaultFileSink("logs")))
+                       Seq(ConsoleSink.text(colored = true)))
 
     def runSearches: ZIO[ZEnv, Throwable, Results] =
       for {

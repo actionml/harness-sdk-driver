@@ -5,11 +5,6 @@ import java.io.PrintWriter
 import io.circe.Json
 import io.circe.literal._
 import io.circe.parser._
-import izumi.logstage.api.rendering.{ RenderingOptions, StringRenderingPolicy }
-import izumi.logstage.sink.file.FileServiceImpl.RealFile
-import izumi.logstage.sink.file.models.FileRotation.DisabledRotation
-import izumi.logstage.sink.file.models.FileSinkConfig
-import izumi.logstage.sink.file.{ FileServiceImpl, FileSink }
 import logstage._
 import sttp.client._
 import sttp.client.asynchttpclient.ziostreams.AsyncHttpClientZioStreamsBackend
@@ -25,7 +20,7 @@ object LoadTest extends App {
     import Utils._
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
-                       Seq(ConsoleSink.text(colored = true), DefaultFileSink("logs")))
+                       Seq(ConsoleSink.text(colored = true)))
     val uri = uri"""${appArgs.uri}/engines/${appArgs.engineId}/${if (appArgs.input) "events"
     else "queries"}"""
 
@@ -49,7 +44,8 @@ object LoadTest extends App {
                   log.debug(s"Request $requestNumber got response in $responseTime ms")
                   Results(if (resp.isSuccess) 1 else 0, if (resp.isServerError) 1 else 0, responseTime, responseTime)
                 }
-                .foldCause(_ => {
+                .foldCause(c => {
+                  log.error(s"Got error: ${c.prettyPrint}")
                   val l = calcLatency(start)
                   Results(0, 1, l, l)
                 }, a => a)
@@ -111,7 +107,8 @@ object LoadTest extends App {
                   log.debug(s"Request $requestNumber got response $resp in $responseTime ms")
                   Results(if (resp.isSuccess) 1 else 0, if (resp.isServerError) 1 else 0, responseTime, responseTime)
                 }
-                .foldCause(_ => {
+                .foldCause(c => {
+                  log.error(s"Got error: ${c.prettyPrint}")
                   val l = calcLatency(start)
                   Results(0, 1, l, l)
                 }, a => a)
@@ -146,14 +143,3 @@ object LoadTest extends App {
 }
 
 final case class Results(succeeded: Int, failed: Int, maxLatency: Int, avgLatency: Int)
-
-object DefaultFileSink {
-  private val policy                      = new StringRenderingPolicy(RenderingOptions(withExceptions = true, colored = false))
-  private def fileService(logDir: String) = new FileServiceImpl(logDir)
-  private val rotation                    = DisabledRotation
-  private val config                      = FileSinkConfig.inBytes(10 * 1024 * 1024)
-  def apply(logDir: String): FileSink[RealFile] =
-    new FileSink(policy, fileService(logDir), rotation, config) {
-      override def recoverOnFail(e: String): Unit = System.err.println(s"ERROR: $e")
-    }
-}
