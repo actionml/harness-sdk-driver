@@ -37,18 +37,33 @@ object LoadTest extends App {
               val start = System.currentTimeMillis()
               log.trace(s"Sending $requestNumber $request")
               httpBackend
-                .send(basicRequest.body(request).header("Content-Type", "application/json").post(uri))
+                .send(
+                  basicRequest
+                    .body(request)
+                    .readTimeout(appArgs.timeout)
+                    .followRedirects(true)
+                    .maxRedirects(3)
+                    .redirectToGet(false)
+                    .header("Content-Type", "application/json")
+                    .post(uri)
+                )
+                .retry(Schedule.recurs(appArgs.nRetries))
                 .map { resp =>
                   val responseTime = calcLatency(start)
                   log.trace(s"Got response $resp for $requestNumber")
                   log.debug(s"Request $requestNumber got response in $responseTime ms")
                   Results(if (resp.isSuccess) 1 else 0, if (resp.isServerError) 1 else 0, responseTime, responseTime)
                 }
-                .foldCause(c => {
-                  log.error(s"Got error: ${c.prettyPrint}")
-                  val l = calcLatency(start)
-                  Results(0, 1, l, l)
-                }, a => a)
+                .foldCause(
+                  c => {
+                    c.failureOption.fold(log.error(s"Got error: ${c.prettyPrint}")) { e =>
+                      log.error(s"Input event error ${e.getMessage}")
+                    }
+                    val l = calcLatency(start)
+                    Results(0, 1, l, l)
+                  },
+                  a => a
+                )
           }
           .run(Sink.foldLeft((1, Results(0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
             (acc._1 + 1,

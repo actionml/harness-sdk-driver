@@ -2,6 +2,8 @@ package com.actionml.harness.client
 
 import scopt.{ DefaultOParserSetup, OParser, OParserSetup }
 
+import scala.concurrent.duration.FiniteDuration
+
 case class RunArgs(
     nThreads: Int,
     maxPerSecond: Int,
@@ -14,10 +16,13 @@ case class RunArgs(
     filterByItemEvent: String,
     factor: Int,
     isVerbose: Boolean,
-    isVVerbose: Boolean
+    isVVerbose: Boolean,
+    timeout: FiniteDuration,
+    nRetries: Int
 )
 
 object RunArgs {
+  import scala.concurrent.duration._
   def parse(args: Seq[String]): Option[RunArgs] = {
     val builder = OParser.builder[RunArgs]
     val parser = {
@@ -77,7 +82,13 @@ object RunArgs {
           .action((v, acc) => acc.copy(factor = v))
           .text(
             "Skip all events except one of factor. E.g. if factor is 10, then only 1 event of the random value from 1 to 10 will be sent."
-          )
+          ),
+        opt[Int]('R', "num-of-retries")
+          .action((r, acc) => acc.copy(nRetries = r))
+          .text("Number of retries"),
+        opt[Int]('t', "timeout")
+          .action((t, acc) => acc.copy(timeout = t.seconds))
+          .text("Response timeout in seconds")
       )
     }
     val setup: OParserSetup = new DefaultOParserSetup {
@@ -99,7 +110,9 @@ object RunArgs {
         filterByItemEvent = "buy",
         factor = 1,
         isVerbose = false,
-        isVVerbose = false
+        isVVerbose = false,
+        timeout = 5.seconds,
+        nRetries = 3
       ),
       setup
     )
