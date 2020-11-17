@@ -52,7 +52,11 @@ object LoadTest extends App {
                   val responseTime = calcLatency(start)
                   log.trace(s"Got response $resp for $requestNumber")
                   log.debug(s"Request $requestNumber got response in $responseTime ms")
-                  Results(if (resp.isSuccess) 1 else 0, if (resp.isServerError) 1 else 0, responseTime, responseTime)
+                  Results(if (resp.isSuccess) 1 else 0,
+                          if (resp.isServerError) 1 else 0,
+                          responseTime,
+                          responseTime,
+                          responseTime)
                 }
                 .foldCause(
                   c => {
@@ -60,16 +64,17 @@ object LoadTest extends App {
                       log.error(s"Input event error ${e.getMessage}")
                     }
                     val l = calcLatency(start)
-                    Results(0, 1, l, l)
+                    Results(0, 1, l, l, l)
                   },
                   a => a
                 )
           }
-          .run(Sink.foldLeft((1, Results(0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
+          .run(Sink.foldLeft((1, Results(0, 0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
             (acc._1 + 1,
              acc._2.copy(
                succeeded = acc._2.succeeded + result.succeeded,
                failed = acc._2.failed + result.failed,
+               minLatency = Math.min(acc._2.minLatency, result.minLatency),
                maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
                avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
              ))
@@ -120,19 +125,24 @@ object LoadTest extends App {
                 .map { resp =>
                   val responseTime = calcLatency(start)
                   log.debug(s"Request $requestNumber got response $resp in $responseTime ms")
-                  Results(if (resp.isSuccess) 1 else 0, if (resp.isServerError) 1 else 0, responseTime, responseTime)
+                  Results(if (resp.isSuccess) 1 else 0,
+                          if (resp.isServerError) 1 else 0,
+                          responseTime,
+                          responseTime,
+                          responseTime)
                 }
                 .foldCause(c => {
                   log.error(s"Got error: ${c.prettyPrint}")
                   val l = calcLatency(start)
-                  Results(0, 1, l, l)
+                  Results(0, 1, l, l, l)
                 }, a => a)
           }
-          .run(Sink.foldLeft((1, Results(0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
+          .run(Sink.foldLeft((1, Results(0, 0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
             (acc._1 + 1,
              acc._2.copy(
                succeeded = acc._2.succeeded + result.succeeded,
                failed = acc._2.failed + result.failed,
+               minLatency = Math.min(acc._2.minLatency, result.minLatency),
                maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
                avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
              ))
@@ -156,4 +166,4 @@ object LoadTest extends App {
   }
 }
 
-final case class Results(succeeded: Int, failed: Int, maxLatency: Int, avgLatency: Int)
+final case class Results(succeeded: Int, failed: Int, minLatency: Int, maxLatency: Int, avgLatency: Int)

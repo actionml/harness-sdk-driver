@@ -1,17 +1,15 @@
 package com.actionml.harness.client
 
-import java.io.FileInputStream
-
 import logstage._
 import sttp.client._
 import sttp.client.asynchttpclient.ziostreams._
 import zio._
 import zio.duration._
-import zio.stream.{ Sink, ZSink, ZStream }
+import zio.stream.{ Sink, ZStream }
 
 object RunAgainstElasticsearch extends App {
 
-  override def run(args: List[String]) = {
+  override def run(args: List[String]): URIO[zio.ZEnv, ExitCode] = {
     import Utils._
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
@@ -33,18 +31,23 @@ object RunAgainstElasticsearch extends App {
                 .map { resp =>
                   val responseTime = calcLatency(start)
                   log.debug(s"Request $requestNumber got response ${resp.body} in $responseTime ms")
-                  Results(if (resp.isSuccess) 1 else 0, if (resp.isServerError) 1 else 0, responseTime, responseTime)
+                  Results(if (resp.isSuccess) 1 else 0,
+                          if (resp.isServerError) 1 else 0,
+                          responseTime,
+                          responseTime,
+                          responseTime)
                 }
                 .foldCause(_ => {
                   val l = calcLatency(start)
-                  Results(0, 1, l, l)
+                  Results(0, 1, l, l, l)
                 }, a => a)
           }
-          .run(Sink.foldLeft((1, Results(0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
+          .run(Sink.foldLeft((1, Results(0, 0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
             (acc._1 + 1,
              acc._2.copy(
                succeeded = acc._2.succeeded + result.succeeded,
                failed = acc._2.failed + result.failed,
+               minLatency = Math.min(acc._2.minLatency, result.minLatency),
                maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
                avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
              ))
@@ -58,7 +61,7 @@ object RunAgainstElasticsearch extends App {
       results <- runSearches
       requestsPerSecond = results.succeeded / (calcLatency(start) / 1000)
       _ = log.info(
-        s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms, ${results.avgLatency} ms"
+        s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
       )
     } yield 0).exitCode.mapErrorCause { c =>
       log.error(s"Got error: ${c.prettyPrint}")
