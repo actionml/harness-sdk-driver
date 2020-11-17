@@ -1,7 +1,6 @@
 package com.actionml.harness.client
 
 import java.io.PrintWriter
-
 import io.circe.Json
 import io.circe.literal._
 import io.circe.parser._
@@ -9,6 +8,7 @@ import logstage._
 import sttp.client._
 import sttp.client.asynchttpclient.ziostreams.AsyncHttpClientZioStreamsBackend
 import zio._
+import zio.console.Console
 import zio.duration._
 import zio.stream.{ Sink, ZStream }
 
@@ -16,7 +16,7 @@ import scala.util.Using
 
 object LoadTest extends App {
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] = {
+  override def run(args: List[String]): URIO[zio.ZEnv, ExitCode] = {
     import Utils._
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
@@ -29,7 +29,7 @@ object LoadTest extends App {
         httpBackend <- AsyncHttpClientZioStreamsBackend(this)
         globalStart = System.currentTimeMillis()
         results <- linesFromPath(appArgs.fileName)
-          .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
+          .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i -> s)
           .filter { case (n, _) => n % appArgs.factor == 0 }
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
@@ -96,7 +96,7 @@ object LoadTest extends App {
       }
       val tmpStart = System.currentTimeMillis()
       Using.resource(new PrintWriter(tmpFile)) { writer =>
-        new DefaultRuntime {}.unsafeRun(
+        Runtime.default.unsafeRun(
           linesFromPath(appArgs.fileName)
             .flatMap(mkSearchString)
             .foreach(s => ZIO.effect(writer.println(s)))
@@ -108,7 +108,7 @@ object LoadTest extends App {
         httpBackend <- AsyncHttpClientZioStreamsBackend(this)
         globalStart = System.currentTimeMillis()
         results <- linesFromPath(tmpFile)
-          .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
+          .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i -> s)
           .filter { case (n, _) => n % appArgs.factor == 0 }
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
           .mapMParUnordered(appArgs.nThreads) {
@@ -149,11 +149,10 @@ object LoadTest extends App {
       _ = log.info(
         s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms, ${results.avgLatency} ms"
       )
-    } yield 0)
-      .mapErrorCause { c =>
-        log.error(s"Got error: ${c.prettyPrint}")
-        Cause.empty
-      }
+    } yield 0).exitCode.mapErrorCause { c =>
+      log.error(s"Got error: ${c.prettyPrint}")
+      Cause.empty
+    }
   }
 }
 

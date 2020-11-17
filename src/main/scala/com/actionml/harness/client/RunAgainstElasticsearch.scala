@@ -11,7 +11,7 @@ import zio.stream.{ Sink, ZSink, ZStream }
 
 object RunAgainstElasticsearch extends App {
 
-  override def run(args: List[String]): ZIO[ZEnv, Nothing, Int] = {
+  override def run(args: List[String]) = {
     import Utils._
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
@@ -22,7 +22,7 @@ object RunAgainstElasticsearch extends App {
         httpBackend <- AsyncHttpClientZioStreamsBackend(this)
         results <- linesFromPath(appArgs.fileName)
           .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
-          .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i.flatMap(n => s.map(b => (n, b))))
+          .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i -> s)
           .mapMParUnordered(appArgs.nThreads) {
             case (requestNumber, request) =>
               val start = System.currentTimeMillis()
@@ -60,7 +60,7 @@ object RunAgainstElasticsearch extends App {
       _ = log.info(
         s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms, ${results.avgLatency} ms"
       )
-    } yield 0).mapErrorCause { c =>
+    } yield 0).exitCode.mapErrorCause { c =>
       log.error(s"Got error: ${c.prettyPrint}")
       Cause.empty
     }

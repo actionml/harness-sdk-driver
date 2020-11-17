@@ -7,10 +7,9 @@ lazy val root = (project in file(".")).
     inThisBuild(List(
       organization := "com.actionml",
       maintainer := "actionml.com",
-      scalaVersion := "2.13.1",
+      scalaVersion := "2.13.3",
       version      := "0.2.0-SNAPSHOT"
     )),
-    addCompilerPlugin("org.typelevel" %% "kind-projector"     % "0.10.3"),
     addCompilerPlugin("com.olegpy"    %% "better-monadic-for" % "0.3.0"),
     name := "harness-load-test",
     resolvers += Resolver.mavenLocal,

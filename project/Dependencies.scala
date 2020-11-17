@@ -11,9 +11,8 @@ object Dependencies {
   val scopt    = "com.github.scopt" %% "scopt"           % "4.0.0-RC2"
   val java_sdk = "com.actionml"     % "harness-java-sdk" % "0.3.0"
   val zio = Seq(
-    "dev.zio" %% "zio"              % "1.0.0-RC17",
-    "dev.zio" %% "zio-streams"      % "1.0.0-RC17",
-    "dev.zio" %% "zio-interop-cats" % "2.0.0.0-RC10",
+    "dev.zio" %% "zio"         % "1.0.3",
+    "dev.zio" %% "zio-streams" % "1.0.3",
   )
   val sttp = Seq(
     "com.softwaremill.sttp.client" %% "core"                                  % "2.0.0-RC6",
