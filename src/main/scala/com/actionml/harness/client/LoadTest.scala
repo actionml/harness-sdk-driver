@@ -5,9 +5,8 @@ import io.circe.literal._
 import io.circe.parser._
 import logstage._
 import sttp.client3._
-import sttp.client3.httpclient.zio.{ HttpClientZioBackend, SttpClient }
+import sttp.client3.httpclient.zio.HttpClientZioBackend
 import zio._
-import zio.duration._
 import zio.stream.{ Sink, ZStream }
 
 import java.io.PrintWriter
@@ -20,10 +19,9 @@ object LoadTest extends App {
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
                        Seq(ConsoleSink.text(colored = true)))
-    val uri = uri"""${appArgs.uri}/engines/${appArgs.engineId}/${if (appArgs.input) "events"
-    else "queries"}"""
+    val uri = uri"""${appArgs.uri}/engines/${appArgs.engineId}/${if (appArgs.input) "events" else "queries"}"""
 
-    def runEvents: RIO[ZEnv, (Long, Results)] = {
+    def sendFileLineByLine(fileName: String): RIO[ZEnv, (Long, Results)] = {
       val defaultRequest = basicRequest
         .readTimeout(appArgs.timeout)
         .followRedirects(true)
@@ -35,7 +33,7 @@ object LoadTest extends App {
       for {
         http <- HttpClientZioBackend()
         globalStart = System.currentTimeMillis()
-        results <- linesFromPath(appArgs.fileName)
+        results <- linesFromPath(fileName)
           .mapM { request =>
             val start = System.currentTimeMillis()
             log.trace(s"Sending $request")
@@ -108,52 +106,14 @@ object LoadTest extends App {
       }
       log.info(s"Preparation stage took ${System.currentTimeMillis() - tmpStart} ms")
 
-      val defaultRequest = basicRequest.header("Content-Type", "application/json").post(uri)
-      for {
-        http <- HttpClientZioBackend()
-        globalStart = System.currentTimeMillis()
-        results <- linesFromPath(tmpFile)
-          .mapM { request =>
-            val requestNumber = -1
-            val start         = System.currentTimeMillis()
-            log.trace(s"Sending $requestNumber $request")
-            defaultRequest
-              .body(request)
-              .send(http)
-              .map { resp =>
-                val responseTime = calcLatency(start)
-                log.debug(s"Request $requestNumber got response $resp in $responseTime ms")
-                Results(if (resp.isSuccess) 1 else 0,
-                        if (resp.isServerError) 1 else 0,
-                        responseTime,
-                        responseTime,
-                        responseTime)
-              }
-              .foldCause(c => {
-                log.error(s"Got error: ${c.prettyPrint}")
-                val l = calcLatency(start)
-                Results(0, 1, l, l, l)
-              }, a => a)
-          }
-          .run(Sink.foldLeft((1, Results(0, 0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
-            (acc._1 + 1,
-             acc._2.copy(
-               succeeded = acc._2.succeeded + result.succeeded,
-               failed = acc._2.failed + result.failed,
-               minLatency =
-                 if (acc._2.minLatency != 0) Math.min(acc._2.minLatency, result.minLatency) else result.minLatency,
-               maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
-               avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
-             ))
-          })
-      } yield (globalStart, results._2)
+      sendFileLineByLine(tmpFile)
     }
 
     def calcLatency(start: Long): Int = (System.currentTimeMillis() - start).toInt
 
     log.info(s"Started with arguments: $appArgs")
     (for {
-      (start, results) <- if (appArgs.input) runEvents else runQueries(appArgs.isUserBased)
+      (start, results) <- if (appArgs.input) sendFileLineByLine(appArgs.fileName) else runQueries(appArgs.isUserBased)
       requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000 + 1)
       _ = log.info(
         s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
