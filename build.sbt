@@ -15,5 +15,5 @@ lazy val root = (project in file(".")).
     resolvers += Resolver.mavenLocal,
     resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     resolvers += "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
-    libraryDependencies ++= Seq(scopt, logstage) ++ circe ++ zio ++ http4s ++ sttp
+    libraryDependencies ++= Seq(scopt, logstage) ++ circe ++ zio ++ sttp
   ).enablePlugins(JavaAppPackaging)

@@ -1,17 +1,16 @@
 package com.actionml.harness.client
 
-import java.io.PrintWriter
 import io.circe.Json
 import io.circe.literal._
 import io.circe.parser._
 import logstage._
-import sttp.client._
-import sttp.client.asynchttpclient.ziostreams.AsyncHttpClientZioStreamsBackend
+import sttp.client3._
+import sttp.client3.httpclient.zio.{ HttpClientZioBackend, SttpClient }
 import zio._
-import zio.console.Console
 import zio.duration._
 import zio.stream.{ Sink, ZStream }
 
+import java.io.PrintWriter
 import scala.util.Using
 
 object LoadTest extends App {
@@ -24,68 +23,67 @@ object LoadTest extends App {
     val uri = uri"""${appArgs.uri}/engines/${appArgs.engineId}/${if (appArgs.input) "events"
     else "queries"}"""
 
-    def runEvents: ZIO[ZEnv, Throwable, (Long, Results)] =
+    def runEvents: RIO[ZEnv, (Long, Results)] = {
+      val defaultRequest = basicRequest
+        .readTimeout(appArgs.timeout)
+        .followRedirects(true)
+        .maxRedirects(3)
+        .redirectToGet(false)
+        .header("Content-Type", "application/json")
+        .post(uri)
+
       for {
-        httpBackend <- AsyncHttpClientZioStreamsBackend(this)
+        http <- HttpClientZioBackend()
         globalStart = System.currentTimeMillis()
         results <- linesFromPath(appArgs.fileName)
-          .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i -> s)
-          .filter { case (n, _) => n % appArgs.factor == 0 }
-          .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
-          .mapMParUnordered(appArgs.nThreads) {
-            case (requestNumber, request) =>
-              val start = System.currentTimeMillis()
-              log.trace(s"Sending $requestNumber $request")
-              httpBackend
-                .send(
-                  basicRequest
-                    .body(request)
-                    .readTimeout(appArgs.timeout)
-                    .followRedirects(true)
-                    .maxRedirects(3)
-                    .redirectToGet(false)
-                    .header("Content-Type", "application/json")
-                    .post(uri)
-                )
-                .retry(Schedule.recurs(appArgs.nRetries))
-                .map { resp =>
-                  val responseTime = calcLatency(start)
-                  log.trace(s"Got response $resp for $requestNumber")
-                  log.debug(s"Request $requestNumber got response in $responseTime ms")
-                  Results(if (resp.isSuccess) 1 else 0,
-                          if (resp.isServerError) 1 else 0,
-                          responseTime,
-                          responseTime,
-                          responseTime)
-                }
-                .foldCause(
-                  c => {
-                    c.failureOption.fold(log.error(s"Got error: ${c.prettyPrint}")) { e =>
-                      log.error(s"Input event error ${e.getMessage}")
-                    }
-                    val l = calcLatency(start)
-                    Results(0, 1, l, l, l)
-                  },
-                  a => a
-                )
+          .mapM { request =>
+            val start = System.currentTimeMillis()
+            log.trace(s"Sending $request")
+            defaultRequest
+              .body(request)
+              .send(http)
+              .retry(Schedule.recurs(appArgs.nRetries))
+              .map { resp =>
+                val responseTime = calcLatency(start)
+                log.trace(s"Got response $resp for $request")
+                log.debug(s"Request $request completed in $responseTime ms")
+                (if (resp.isSuccess) 1 else 0,
+                 if (resp.isServerError) 1 else 0,
+                 responseTime,
+                 responseTime,
+                 responseTime)
+              }
+              .foldCause(
+                c => {
+                  c.failureOption.fold(log.error(s"Got error: ${c.prettyPrint}")) { e =>
+                    log.error(s"Input event error ${e.getMessage}")
+                  }
+                  val l = calcLatency(start)
+                  (0, 1, l, l, l)
+                },
+                a => a
+              )
           }
-          .run(Sink.foldLeft((1, Results(0, 0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
-            (acc._1 + 1,
-             acc._2.copy(
-               succeeded = acc._2.succeeded + result.succeeded,
-               failed = acc._2.failed + result.failed,
-               minLatency = Math.min(acc._2.minLatency, result.minLatency),
-               maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
-               avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
-             ))
+          .run(Sink.foldLeft((1, (0, 0, 0, 0, 0))) {
+            (acc: (Int, (Int, Int, Int, Int, Int)), result: (Int, Int, Int, Int, Int)) =>
+              (acc._1 + 1,
+               (
+                 acc._2._1 + result._1,
+                 acc._2._2 + result._2,
+                 if (acc._2._3 != 0) Math.min(acc._2._3, result._3) else result._3,
+                 Math.max(acc._2._4, result._4),
+                 acc._2._5 + (result._5 - acc._2._5) / (acc._1 + 1)
+               ))
           })
-      } yield (globalStart, results._2)
+      } yield (globalStart, (Results.apply _) tupled results._2)
+    }.provideCustomLayer(HttpClientZioBackend.layer())
 
     def runQueries(user: Boolean): ZIO[ZEnv, Throwable, (Long, Results)] = {
       val eType      = if (user) "entityType" else "targetEntityType"
       val eIdType    = if (user) "entityId" else "targetEntityId"
       val eTypeValue = if (user) "user" else "item"
       val tmpFile    = s"essearchqueries-$eTypeValue.json"
+
       def mkSearchString(s: String): zio.stream.Stream[Throwable, String] = {
         val j = parse(s).getOrElse(Json.Null).dropNullValues
         val entityType = j.hcursor
@@ -99,6 +97,7 @@ object LoadTest extends App {
           )
         else ZStream.empty
       }
+
       val tmpStart = System.currentTimeMillis()
       Using.resource(new PrintWriter(tmpFile)) { writer =>
         Runtime.default.unsafeRun(
@@ -109,40 +108,40 @@ object LoadTest extends App {
       }
       log.info(s"Preparation stage took ${System.currentTimeMillis() - tmpStart} ms")
 
+      val defaultRequest = basicRequest.header("Content-Type", "application/json").post(uri)
       for {
-        httpBackend <- AsyncHttpClientZioStreamsBackend(this)
+        http <- HttpClientZioBackend()
         globalStart = System.currentTimeMillis()
         results <- linesFromPath(tmpFile)
-          .zipWith(ZStream.fromIterable(LazyList.from(0)))((s, i) => i -> s)
-          .filter { case (n, _) => n % appArgs.factor == 0 }
-          .throttleShape(appArgs.maxPerSecond, 1.second)(_ => 1)
-          .mapMParUnordered(appArgs.nThreads) {
-            case (requestNumber, request) =>
-              val start = System.currentTimeMillis()
-              log.trace(s"Sending $requestNumber $request")
-              httpBackend
-                .send(basicRequest.body(request).header("Content-Type", "application/json").post(uri))
-                .map { resp =>
-                  val responseTime = calcLatency(start)
-                  log.debug(s"Request $requestNumber got response $resp in $responseTime ms")
-                  Results(if (resp.isSuccess) 1 else 0,
-                          if (resp.isServerError) 1 else 0,
-                          responseTime,
-                          responseTime,
-                          responseTime)
-                }
-                .foldCause(c => {
-                  log.error(s"Got error: ${c.prettyPrint}")
-                  val l = calcLatency(start)
-                  Results(0, 1, l, l, l)
-                }, a => a)
+          .mapM { request =>
+            val requestNumber = -1
+            val start         = System.currentTimeMillis()
+            log.trace(s"Sending $requestNumber $request")
+            defaultRequest
+              .body(request)
+              .send(http)
+              .map { resp =>
+                val responseTime = calcLatency(start)
+                log.debug(s"Request $requestNumber got response $resp in $responseTime ms")
+                Results(if (resp.isSuccess) 1 else 0,
+                        if (resp.isServerError) 1 else 0,
+                        responseTime,
+                        responseTime,
+                        responseTime)
+              }
+              .foldCause(c => {
+                log.error(s"Got error: ${c.prettyPrint}")
+                val l = calcLatency(start)
+                Results(0, 1, l, l, l)
+              }, a => a)
           }
           .run(Sink.foldLeft((1, Results(0, 0, 0, 0, 0))) { (acc: (Int, Results), result: Results) =>
             (acc._1 + 1,
              acc._2.copy(
                succeeded = acc._2.succeeded + result.succeeded,
                failed = acc._2.failed + result.failed,
-               minLatency = Math.min(acc._2.minLatency, result.minLatency),
+               minLatency =
+                 if (acc._2.minLatency != 0) Math.min(acc._2.minLatency, result.minLatency) else result.minLatency,
                maxLatency = Math.max(acc._2.maxLatency, result.maxLatency),
                avgLatency = acc._2.avgLatency + (result.avgLatency - acc._2.avgLatency) / (acc._1 + 1)
              ))
@@ -157,12 +156,13 @@ object LoadTest extends App {
       (start, results) <- if (appArgs.input) runEvents else runQueries(appArgs.isUserBased)
       requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000 + 1)
       _ = log.info(
-        s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.maxLatency} ms, ${results.avgLatency} ms"
+        s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
       )
-    } yield 0).exitCode.mapErrorCause { c =>
-      log.error(s"Got error: ${c.prettyPrint}")
-      Cause.empty
-    }
+    } yield 0).exitCode
+      .mapErrorCause { c =>
+        log.error(s"Got error: ${c.prettyPrint}")
+        Cause.empty
+      }
   }
 }
 
