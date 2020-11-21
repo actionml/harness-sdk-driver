@@ -22,7 +22,7 @@ object LoadTest extends App {
                        Seq(ConsoleSink.text(colored = true)))
     val uri = uri"""${appArgs.uri}/engines/${appArgs.engineId}/${if (appArgs.input) "events" else "queries"}"""
 
-    def sendFileLineByLine(fileName: String): RIO[ZEnv, (Long, Results)] = {
+    def sendFileLineByLine(fileName: String, filter: String => Boolean = _ => true): RIO[ZEnv, (Long, Results)] = {
       val defaultRequest = basicRequest
         .readTimeout(appArgs.timeout)
         .followRedirects(true)
@@ -35,12 +35,13 @@ object LoadTest extends App {
         http <- HttpClientZioBackend()
         globalStart = System.currentTimeMillis()
         results <- linesFromPath(fileName)
-          .throttleShape(appArgs.maxPerSecond, 1.second)(_.size)
           .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
+          .filter(filter)
           .zipWithIndex
           .collect {
             case (r, i) if i % appArgs.factor == 0 => r
           }
+          .throttleShape(appArgs.maxPerSecond, 1.second)(_.size)
           .mapM { request =>
             val start = System.currentTimeMillis()
             log.trace(s"Sending $request")
@@ -104,23 +105,24 @@ object LoadTest extends App {
       }
 
       val tmpStart = System.currentTimeMillis()
-      Using.resource(new PrintWriter(tmpFile)) { writer =>
-        Runtime.default.unsafeRun(
-          linesFromPath(appArgs.fileName)
-            .flatMap(mkSearchString)
-            .foreach(s => ZIO.effect(writer.println(s)))
-        )
-      }
-      log.info(s"Preparation stage took ${System.currentTimeMillis() - tmpStart} ms")
+      for {
+        writer <- ZIO.effect(new PrintWriter(tmpFile))
+        _ <- linesFromPath(appArgs.fileName)
+          .flatMap(mkSearchString)
+          .foreach(s => ZIO.effect(writer.println(s)))
+        _ = log.info(s"Preparation stage took ${System.currentTimeMillis() - tmpStart} ms")
+        r <- sendFileLineByLine(tmpFile)
+      } yield r
 
-      sendFileLineByLine(tmpFile)
     }
 
     def calcLatency(start: Long): Int = (System.currentTimeMillis() - start).toInt
 
     log.info(s"Started with arguments: $appArgs")
+    val setsFilter: String => Boolean = s => !(appArgs.skipSets && s.contains("$set"))
     (for {
-      (start, results) <- if (appArgs.input) sendFileLineByLine(appArgs.fileName) else runQueries(appArgs.isUserBased)
+      (start, results) <- if (appArgs.input) sendFileLineByLine(appArgs.fileName, filter = setsFilter)
+      else runQueries(appArgs.isUserBased)
       requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000 + 1)
       _ = log.info(
         s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"

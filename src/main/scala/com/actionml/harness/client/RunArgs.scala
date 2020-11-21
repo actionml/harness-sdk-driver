@@ -18,7 +18,8 @@ case class RunArgs(
     isVerbose: Boolean,
     isVVerbose: Boolean,
     timeout: FiniteDuration,
-    nRetries: Int
+    nRetries: Int,
+    skipSets: Boolean,
 )
 
 object RunArgs {
@@ -88,11 +89,14 @@ object RunArgs {
           .text("Number of retries"),
         opt[Int]('t', "timeout")
           .action((t, acc) => acc.copy(timeout = t.seconds))
-          .text("Response timeout in seconds")
+          .text("Response timeout in seconds"),
+        opt[Unit]("skip-sets")
+          .action((_, acc) => acc.copy(skipSets = true))
+          .text("Skips all $set events"),
       )
     }
     val setup: OParserSetup = new DefaultOParserSetup {
-      override def showUsageOnError = Some(true)
+      override def showUsageOnError: Option[Boolean] = Some(true)
     }
 
     OParser.parse(
@@ -112,7 +116,8 @@ object RunArgs {
         isVerbose = false,
         isVVerbose = false,
         timeout = 5.seconds,
-        nRetries = 3
+        nRetries = 3,
+        skipSets = false,
       ),
       setup
     )
