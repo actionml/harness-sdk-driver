@@ -7,6 +7,7 @@ import logstage._
 import sttp.client3._
 import sttp.client3.httpclient.zio.HttpClientZioBackend
 import zio._
+import zio.duration._
 import zio.stream.{ Sink, ZStream }
 
 import java.io.PrintWriter
@@ -34,6 +35,12 @@ object LoadTest extends App {
         http <- HttpClientZioBackend()
         globalStart = System.currentTimeMillis()
         results <- linesFromPath(fileName)
+          .throttleShape(appArgs.maxPerSecond, 1.second)(_.size)
+          .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
+          .zipWithIndex
+          .collect {
+            case (r, i) if i % appArgs.factor == 0 => r
+          }
           .mapM { request =>
             val start = System.currentTimeMillis()
             log.trace(s"Sending $request")
