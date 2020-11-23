@@ -11,21 +11,13 @@ object Dependencies {
   val scopt    = "com.github.scopt" %% "scopt"           % "4.0.0-RC2"
   val java_sdk = "com.actionml"     % "harness-java-sdk" % "0.3.0"
   val zio = Seq(
-    "dev.zio" %% "zio"              % "1.0.0-RC17",
-    "dev.zio" %% "zio-streams"      % "1.0.0-RC17",
-    "dev.zio" %% "zio-interop-cats" % "2.0.0.0-RC10",
+    "dev.zio" %% "zio"         % "1.0.3",
+    "dev.zio" %% "zio-streams" % "1.0.3",
   )
   val sttp = Seq(
-    "com.softwaremill.sttp.client" %% "core"                                  % "2.0.0-RC6",
-    "com.softwaremill.sttp.client" %% "async-http-client-backend-zio-streams" % "2.0.0-RC6",
-    "com.softwaremill.sttp.client" %% "circe"                                 % "2.0.0-RC6"
+    "com.softwaremill.sttp.client3" %% "httpclient-backend-zio" % "3.0.0-RC9",
+    "com.softwaremill.sttp.client3" %% "core"                   % "3.0.0-RC9",
+    "com.softwaremill.sttp.client3" %% "circe"                  % "3.0.0-RC9",
   )
-  private val http4sVersion = "0.21.0-M6"
-  val http4s = Seq(
-    "org.http4s"     %% "http4s-blaze-client" % http4sVersion,
-    "org.http4s"     %% "http4s-circe"        % http4sVersion,
-    "org.http4s"     %% "http4s-dsl"          % http4sVersion,
-    "ch.qos.logback" % "logback-classic"      % "1.2.3"
-  )
-  val logstage = "io.7mind.izumi" %% "logstage-core" % "0.10.0-M7"
+  val logstage = "io.7mind.izumi" %% "logstage-core" % "1.0.0-M1"
 }

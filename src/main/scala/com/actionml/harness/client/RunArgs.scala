@@ -12,13 +12,16 @@ case class RunArgs(
     fileName: String,
     input: Boolean,
     isUserBased: Boolean,
+    userBasedWeight: Int,
+    isItemBased: Boolean,
     isAllItems: Boolean,
     filterByItemEvent: String,
     factor: Int,
     isVerbose: Boolean,
     isVVerbose: Boolean,
     timeout: FiniteDuration,
-    nRetries: Int
+    nRetries: Int,
+    skipSets: Boolean,
 )
 
 object RunArgs {
@@ -29,7 +32,7 @@ object RunArgs {
       import builder._
       OParser.sequence(
         programName("harness-load-test.sh"),
-        head("harness load test", "0.2"),
+        head("harness load test", "0.3"),
         cmd("input")
           .required()
           .action((_, acc) => acc.copy(input = true)),
@@ -39,8 +42,13 @@ object RunArgs {
         opt[Unit]("user-based")
           .action((_, acc) => acc.copy(isUserBased = true))
           .text("Indicator for queries. Sends user-based queries."),
+        opt[Int]("user-based-weight")
+          .action((w, acc) => acc.copy(userBasedWeight = w))
+          .text(
+            "Approximate number of user-based queries compared to item-based queries as a percentage. Default is 100."
+          ),
         opt[Unit]("item-based")
-          .action((_, acc) => acc.copy(isUserBased = false))
+          .action((_, acc) => acc.copy(isItemBased = true))
           .text("Indicator for queries. Sends item-based queries."),
         opt[Unit]("all-items")
           .action((_, acc) => acc.copy(isAllItems = true))
@@ -88,11 +96,14 @@ object RunArgs {
           .text("Number of retries"),
         opt[Int]('t', "timeout")
           .action((t, acc) => acc.copy(timeout = t.seconds))
-          .text("Response timeout in seconds")
+          .text("Response timeout in seconds"),
+        opt[Unit]("skip-sets")
+          .action((_, acc) => acc.copy(skipSets = true))
+          .text("Skips all $set events"),
       )
     }
     val setup: OParserSetup = new DefaultOParserSetup {
-      override def showUsageOnError = Some(true)
+      override def showUsageOnError: Option[Boolean] = Some(true)
     }
 
     OParser.parse(
@@ -106,13 +117,16 @@ object RunArgs {
         fileName = "events.json",
         input = true,
         isUserBased = false,
+        userBasedWeight = 100,
+        isItemBased = true,
         isAllItems = false,
         filterByItemEvent = "buy",
         factor = 1,
         isVerbose = false,
         isVVerbose = false,
         timeout = 5.seconds,
-        nRetries = 3
+        nRetries = 3,
+        skipSets = false,
       ),
       setup
     )
