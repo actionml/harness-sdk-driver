@@ -12,6 +12,8 @@ case class RunArgs(
     fileName: String,
     input: Boolean,
     isUserBased: Boolean,
+    userBasedWeight: Int,
+    isItemBased: Boolean,
     isAllItems: Boolean,
     filterByItemEvent: String,
     factor: Int,
@@ -30,7 +32,7 @@ object RunArgs {
       import builder._
       OParser.sequence(
         programName("harness-load-test.sh"),
-        head("harness load test", "0.2"),
+        head("harness load test", "0.3"),
         cmd("input")
           .required()
           .action((_, acc) => acc.copy(input = true)),
@@ -40,8 +42,13 @@ object RunArgs {
         opt[Unit]("user-based")
           .action((_, acc) => acc.copy(isUserBased = true))
           .text("Indicator for queries. Sends user-based queries."),
+        opt[Int]("user-based-weight")
+          .action((w, acc) => acc.copy(userBasedWeight = w))
+          .text(
+            "Approximate number of user-based queries compared to item-based queries as a percentage. Default is 100."
+          ),
         opt[Unit]("item-based")
-          .action((_, acc) => acc.copy(isUserBased = false))
+          .action((_, acc) => acc.copy(isItemBased = true))
           .text("Indicator for queries. Sends item-based queries."),
         opt[Unit]("all-items")
           .action((_, acc) => acc.copy(isAllItems = true))
@@ -110,6 +117,8 @@ object RunArgs {
         fileName = "events.json",
         input = true,
         isUserBased = false,
+        userBasedWeight = 100,
+        isItemBased = true,
         isAllItems = false,
         filterByItemEvent = "buy",
         factor = 1,
