@@ -11,7 +11,6 @@ import zio.duration._
 import zio.stream.{ Sink, ZStream }
 
 import java.io.PrintWriter
-import scala.util.Using
 
 object LoadTest extends App {
 
@@ -42,7 +41,7 @@ object LoadTest extends App {
             case (r, i) if i % appArgs.factor == 0 => r
           }
           .throttleShape(appArgs.maxPerSecond, 1.second)(_.size)
-          .mapM { request =>
+          .mapMPar(appArgs.nThreads) { request =>
             val start = System.currentTimeMillis()
             log.trace(s"Sending $request")
             defaultRequest
