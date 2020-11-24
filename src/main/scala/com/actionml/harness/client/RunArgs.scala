@@ -10,9 +10,9 @@ case class RunArgs(
     engineId: String,
     uri: String,
     fileName: String,
-    inputWeight: Int,
-    userBasedWeight: Int,
-    itemBasedWeight: Int,
+    inputWeight: Double,
+    userBasedWeight: Double,
+    itemBasedWeight: Double,
     isAllItems: Boolean,
     filterByItemEvent: String,
     factor: Int,
@@ -22,10 +22,14 @@ case class RunArgs(
     nRetries: Int,
     skipSets: Boolean,
 ) {
-  def isInput: Boolean     = inputWeight > 0
-  def isItemBased: Boolean = itemBasedWeight > 0
-  def isUserBased: Boolean = userBasedWeight > 0
-  def isQuery: Boolean     = isItemBased || isUserBased
+  def isInput: Boolean             = inputWeight > 0
+  def isItemBased: Boolean         = itemBasedWeight > 0
+  def isUserBased: Boolean         = userBasedWeight > 0
+  def isQuery: Boolean             = isItemBased || isUserBased
+  private val commonWeight: Double = inputWeight + userBasedWeight + itemBasedWeight
+  def inputRps: Int                = (inputWeight / commonWeight * maxPerSecond).toInt
+  def itemBasedRps: Int            = (itemBasedWeight / commonWeight * maxPerSecond).toInt
+  def userBasedRps: Int            = (userBasedWeight / commonWeight * maxPerSecond).toInt
 }
 
 object RunArgs {
@@ -37,7 +41,7 @@ object RunArgs {
       OParser.sequence(
         programName("harness-load-test.sh"),
         head("harness load test", "0.3"),
-        opt[Int]("input-weight")
+        opt[Double]("input-weight")
           .action((w, acc) => acc.copy(inputWeight = w))
           .validate { i =>
             if (i >= 0) success
@@ -46,7 +50,7 @@ object RunArgs {
           .text(
             "--input-weight <n> will send every n-th line of source file as an input. Default is 1 (every input will be sent)."
           ),
-        opt[Int]("user-based-weight")
+        opt[Double]("user-based-weight")
           .action((w, acc) => acc.copy(userBasedWeight = w))
           .validate { i =>
             if (i >= 0) success
@@ -55,7 +59,7 @@ object RunArgs {
           .text(
             "--user-based-weight <n> will transform every n-th line of source file to an user-based query and send it to the Harness server. Default is 0 (nothing will be sent by default)."
           ),
-        opt[Int]("item-based-weight")
+        opt[Double]("item-based-weight")
           .action((w, acc) => acc.copy(itemBasedWeight = w))
           .validate { i =>
             if (i >= 0) success

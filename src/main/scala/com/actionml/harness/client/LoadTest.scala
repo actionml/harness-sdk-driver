@@ -66,8 +66,13 @@ object LoadTest extends App {
 
     def mkInputs(lines: ZStream[Blocking, Nothing, String]) =
       lines.zipWithIndex.collect {
-        case (l, i) if i % appArgs.inputWeight == 0 => l
+        case (l, i) if =%=(i, appArgs.inputWeight) => l
       }
+
+    def =%=(a: Double, b: Double): Boolean = {
+      val c = a / b
+      c - Math.floor(c) < 0.001
+    }
 
     def mkQueries(lines: ZStream[Blocking, Nothing, String]) = {
       def mkItemBasedQuery(s: String) = {
@@ -102,9 +107,9 @@ object LoadTest extends App {
 
       lines.zipWithIndex.flatMap {
         case (s, i) =>
-          (if (appArgs.isItemBased && i % appArgs.itemBasedWeight == 0) mkItemBasedQuery(s)
+          (if (appArgs.isItemBased && =%=(i, appArgs.itemBasedWeight)) mkItemBasedQuery(s)
            else ZStream.empty) ++
-          (if (appArgs.isUserBased && (i % appArgs.userBasedWeight == 0)) mkUserBasedQuery(s)
+          (if (appArgs.isUserBased && =%=(i, appArgs.userBasedWeight)) mkUserBasedQuery(s)
            else ZStream.empty)
       }
     }
