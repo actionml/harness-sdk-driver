@@ -12,8 +12,6 @@ import zio.blocking.Blocking
 import zio.duration._
 import zio.stream.{ Sink, ZStream }
 
-import java.io.PrintWriter
-
 object LoadTest extends App {
 
   override def run(args: List[String]): URIO[zio.ZEnv, ExitCode] = {
@@ -23,9 +21,10 @@ object LoadTest extends App {
                        Seq(ConsoleSink.text(colored = true)))
     val inputUri = uri"${appArgs.uri}/engines/${appArgs.engineId}/events"
     val queryUri = uri"${appArgs.uri}/engines/${appArgs.engineId}/queries"
-    val lines    = linesFromPath(appArgs.fileName)
 
-    def sendLineByLine(uri: Uri, filter: String => Boolean = _ => true): RIO[ZEnv, (Long, Results)] = {
+    def sendLineByLine(uri: Uri,
+                       lines: ZStream[Blocking, Nothing, String],
+                       filter: String => Boolean = _ => true): RIO[ZEnv, (Long, Results)] = {
       val defaultRequest = basicRequest
         .readTimeout(appArgs.timeout)
         .followRedirects(true)
@@ -118,13 +117,13 @@ object LoadTest extends App {
         else ZStream.empty
       }
 
-      lines.zipWithIndex.flatMap {
+      val lines = linesFromPath(appArgs.fileName).zipWithIndex.flatMap {
         case (s, i) =>
           (if (itemBased) mkItemBasedQuery(s) else ZStream.empty) ++
           (if (userBased && (i % (100 / appArgs.userBasedWeight) == 0)) mkUserBasedQuery(s) else ZStream.empty)
       }
       for {
-        r <- sendLineByLine(queryUri)
+        r <- sendLineByLine(queryUri, lines)
       } yield r
 
     }
@@ -133,8 +132,10 @@ object LoadTest extends App {
 
     log.info(s"Started with arguments: $appArgs")
     val setsFilter: String => Boolean = s => !(appArgs.skipSets && s.contains("$set"))
+    val lines                         = linesFromPath(appArgs.fileName)
+
     (for {
-      (start, results) <- (if (!appArgs.skipInput) sendLineByLine(inputUri, filter = setsFilter)
+      (start, results) <- (if (!appArgs.skipInput) sendLineByLine(inputUri, lines, filter = setsFilter)
                            else ZIO.succeed(0 -> Results.empty))
         .zipPar {
           if (!appArgs.skipQuery) runQueries(userBased = appArgs.isUserBased, itemBased = appArgs.isItemBased)
