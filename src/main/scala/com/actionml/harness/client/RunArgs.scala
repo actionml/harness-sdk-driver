@@ -10,7 +10,8 @@ case class RunArgs(
     engineId: String,
     uri: String,
     fileName: String,
-    input: Boolean,
+    skipInput: Boolean,
+    skipQuery: Boolean,
     isUserBased: Boolean,
     userBasedWeight: Int,
     isItemBased: Boolean,
@@ -33,12 +34,12 @@ object RunArgs {
       OParser.sequence(
         programName("harness-load-test.sh"),
         head("harness load test", "0.3"),
-        cmd("input")
-          .required()
-          .action((_, acc) => acc.copy(input = true)),
-        cmd("query")
-          .required()
-          .action((_, acc) => acc.copy(input = false)),
+        opt[Unit]("skip-input")
+          .action((_, acc) => acc.copy(skipInput = true))
+          .text("Skips all inputs."),
+        opt[Unit]("skip-query")
+          .action((_, acc) => acc.copy(skipQuery = true))
+          .text("Skips all queries."),
         opt[Unit]("user-based")
           .action((_, acc) => acc.copy(isUserBased = true))
           .text("Indicator for queries. Sends user-based queries."),
@@ -115,7 +116,8 @@ object RunArgs {
         engineId = "test-ur",
         uri = "http://localhost:9090",
         fileName = "events.json",
-        input = true,
+        skipInput = false,
+        skipQuery = false,
         isUserBased = false,
         userBasedWeight = 100,
         isItemBased = true,

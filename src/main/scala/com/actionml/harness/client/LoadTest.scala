@@ -6,7 +6,9 @@ import io.circe.parser._
 import logstage._
 import sttp.client3._
 import sttp.client3.httpclient.zio.HttpClientZioBackend
+import sttp.model.Uri
 import zio._
+import zio.blocking.Blocking
 import zio.duration._
 import zio.stream.{ Sink, ZStream }
 
@@ -19,9 +21,11 @@ object LoadTest extends App {
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
                        Seq(ConsoleSink.text(colored = true)))
-    val uri = uri"""${appArgs.uri}/engines/${appArgs.engineId}/${if (appArgs.input) "events" else "queries"}"""
+    val inputUri = uri"${appArgs.uri}/engines/${appArgs.engineId}/events"
+    val queryUri = uri"${appArgs.uri}/engines/${appArgs.engineId}/queries"
+    val lines    = linesFromPath(appArgs.fileName)
 
-    def sendFileLineByLine(fileName: String, filter: String => Boolean = _ => true): RIO[ZEnv, (Long, Results)] = {
+    def sendLineByLine(uri: Uri, filter: String => Boolean = _ => true): RIO[ZEnv, (Long, Results)] = {
       val defaultRequest = basicRequest
         .readTimeout(appArgs.timeout)
         .followRedirects(true)
@@ -33,7 +37,7 @@ object LoadTest extends App {
       for {
         http <- HttpClientZioBackend()
         globalStart = System.currentTimeMillis()
-        results <- linesFromPath(fileName)
+        results <- lines
           .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
           .filter(filter)
           .zipWithIndex
@@ -84,15 +88,13 @@ object LoadTest extends App {
     }.provideCustomLayer(HttpClientZioBackend.layer())
 
     def runQueries(userBased: Boolean, itemBased: Boolean): ZIO[ZEnv, Throwable, (Long, Results)] = {
-      val tmpFile = "harness-queries.json"
-
       def mkItemBasedQuery(s: String) = {
         val eType      = "targetEntityType"
         val eIdType    = "targetEntityId"
         val eTypeValue = "item"
         mkSearchString(s, eType = eType, eIdType = eIdType, eTypeValue = eTypeValue)
       }
-      def mkUserBasedQuery(s: String): zio.stream.Stream[Throwable, String] = {
+      def mkUserBasedQuery(s: String) = {
         val eType      = "entityType"
         val eIdType    = "entityId"
         val eTypeValue = "user"
@@ -102,7 +104,7 @@ object LoadTest extends App {
       def mkSearchString(s: String,
                          eType: String,
                          eIdType: String,
-                         eTypeValue: String): zio.stream.Stream[Throwable, String] = {
+                         eTypeValue: String): zio.stream.Stream[Nothing, String] = {
         val j = parse(s).getOrElse(Json.Null).dropNullValues
         val entityType = j.hcursor
           .downField(eType)
@@ -116,18 +118,13 @@ object LoadTest extends App {
         else ZStream.empty
       }
 
-      val tmpStart = System.currentTimeMillis()
+      lines.zipWithIndex.flatMap {
+        case (s, i) =>
+          (if (itemBased) mkItemBasedQuery(s) else ZStream.empty) ++
+          (if (userBased && (i % (100 / appArgs.userBasedWeight) == 0)) mkUserBasedQuery(s) else ZStream.empty)
+      }
       for {
-        writer <- ZIO.effect(new PrintWriter(tmpFile))
-        _ <- linesFromPath(appArgs.fileName).zipWithIndex
-          .flatMap {
-            case (s, i) =>
-              (if (itemBased) mkItemBasedQuery(s) else ZStream.empty) ++
-              (if (userBased && (i % (100 / appArgs.userBasedWeight) == 0)) mkUserBasedQuery(s) else ZStream.empty)
-          }
-          .foreach(s => ZIO.effect(writer.println(s)))
-        _ = log.info(s"Preparation stage took ${System.currentTimeMillis() - tmpStart} ms")
-        r <- sendFileLineByLine(tmpFile)
+        r <- sendLineByLine(queryUri)
       } yield r
 
     }
@@ -137,8 +134,13 @@ object LoadTest extends App {
     log.info(s"Started with arguments: $appArgs")
     val setsFilter: String => Boolean = s => !(appArgs.skipSets && s.contains("$set"))
     (for {
-      (start, results) <- if (appArgs.input) sendFileLineByLine(appArgs.fileName, filter = setsFilter)
-      else runQueries(userBased = appArgs.isUserBased, itemBased = appArgs.isItemBased)
+      (start, results) <- (if (!appArgs.skipInput) sendLineByLine(inputUri, filter = setsFilter)
+                           else ZIO.succeed(0 -> Results.empty))
+        .zipPar {
+          if (!appArgs.skipQuery) runQueries(userBased = appArgs.isUserBased, itemBased = appArgs.isItemBased)
+          else ZIO.succeed(0 -> Results.empty)
+        }
+        .map { case ((al: Long, ar), (bl: Long, br)) => (Math.min(al, bl), ar.sum(br)) }
       requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000 + 1)
       _ = log.info(
         s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
@@ -151,4 +153,15 @@ object LoadTest extends App {
   }
 }
 
-final case class Results(succeeded: Int, failed: Int, minLatency: Int, maxLatency: Int, avgLatency: Int)
+final case class Results(succeeded: Int, failed: Int, minLatency: Int, maxLatency: Int, avgLatency: Int) {
+  def sum(r: Results): Results =
+    Results(r.succeeded + succeeded,
+            r.failed + failed,
+            r.minLatency + minLatency,
+            r.maxLatency + maxLatency,
+            r.avgLatency + avgLatency)
+}
+
+object Results {
+  val empty: Results = Results(0, 0, 0, 0, 0)
+}
