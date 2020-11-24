@@ -37,12 +37,7 @@ object LoadTest extends App {
                        http: SttpBackend[Task, ZioStreams with WebSockets],
                        filter: String => Boolean = _ => true) =
       lines
-        .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
         .filter(filter)
-        .zipWithIndex
-        .collect {
-          case (r, i) if i % appArgs.factor == 0 => r
-        }
         .throttleShape(appArgs.maxPerSecond, 1.second)(_.size)
         .mapMPar(appArgs.nThreads) { request =>
           val start = System.currentTimeMillis()
@@ -69,7 +64,12 @@ object LoadTest extends App {
             )
         }
 
-    def mkQueries(userBased: Boolean, itemBased: Boolean) = {
+    def mkInputs(lines: ZStream[Blocking, Nothing, String]) =
+      lines.zipWithIndex.collect {
+        case (l, i) if i % appArgs.inputWeight == 0 => l
+      }
+
+    def mkQueries(lines: ZStream[Blocking, Nothing, String]) = {
       def mkItemBasedQuery(s: String) = {
         val eType      = "targetEntityType"
         val eIdType    = "targetEntityId"
@@ -100,10 +100,12 @@ object LoadTest extends App {
         else ZStream.empty
       }
 
-      linesFromPath(appArgs.fileName).zipWithIndex.flatMap {
+      lines.zipWithIndex.flatMap {
         case (s, i) =>
-          (if (itemBased) mkItemBasedQuery(s) else ZStream.empty) ++
-          (if (userBased && (i % (100 / appArgs.userBasedWeight) == 0)) mkUserBasedQuery(s) else ZStream.empty)
+          (if (appArgs.isItemBased && i % appArgs.itemBasedWeight == 0) mkItemBasedQuery(s)
+           else ZStream.empty) ++
+          (if (appArgs.isUserBased && (i % appArgs.userBasedWeight == 0)) mkUserBasedQuery(s)
+           else ZStream.empty)
       }
     }
 
@@ -111,17 +113,20 @@ object LoadTest extends App {
 
     log.info(s"Started with arguments: $appArgs")
     val setsFilter: String => Boolean = s => !(appArgs.skipSets && s.contains("$set"))
-    val lines                         = linesFromPath(appArgs.fileName)
 
-    def httpRequests(http: SttpBackend[Task, ZioStreams with WebSockets]) =
-      (if (!appArgs.skipInput) mkHttpRequests(inputRequest, lines, http, setsFilter) else ZStream.empty)
-        .merge {
-          if (!appArgs.skipQuery)
-            mkHttpRequests(queryRequest,
-                           mkQueries(userBased = appArgs.isUserBased, itemBased = appArgs.isItemBased),
-                           http)
-          else ZStream.empty
-        }
+    def httpRequests(http: SttpBackend[Task, ZioStreams with WebSockets]) = {
+      def lines =
+        linesFromPath(appArgs.fileName)
+          .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
+          .zipWithIndex
+          .collect {
+            case (r, i) if i % appArgs.factor == 0 => r
+          }
+      ZStream.mergeAll(2)(
+        if (appArgs.isInput) mkHttpRequests(inputRequest, mkInputs(lines), http, setsFilter) else ZStream.empty,
+        if (appArgs.isQuery) mkHttpRequests(queryRequest, mkQueries(lines), http) else ZStream.empty
+      )
+    }
 
     (for {
       http <- HttpClientZioBackend()

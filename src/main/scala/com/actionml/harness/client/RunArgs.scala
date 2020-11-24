@@ -10,11 +10,9 @@ case class RunArgs(
     engineId: String,
     uri: String,
     fileName: String,
-    skipInput: Boolean,
-    skipQuery: Boolean,
-    isUserBased: Boolean,
+    inputWeight: Int,
     userBasedWeight: Int,
-    isItemBased: Boolean,
+    itemBasedWeight: Int,
     isAllItems: Boolean,
     filterByItemEvent: String,
     factor: Int,
@@ -23,7 +21,12 @@ case class RunArgs(
     timeout: FiniteDuration,
     nRetries: Int,
     skipSets: Boolean,
-)
+) {
+  def isInput: Boolean     = inputWeight > 0
+  def isItemBased: Boolean = itemBasedWeight > 0
+  def isUserBased: Boolean = userBasedWeight > 0
+  def isQuery: Boolean     = isItemBased || isUserBased
+}
 
 object RunArgs {
   import scala.concurrent.duration._
@@ -34,23 +37,33 @@ object RunArgs {
       OParser.sequence(
         programName("harness-load-test.sh"),
         head("harness load test", "0.3"),
-        opt[Unit]("skip-input")
-          .action((_, acc) => acc.copy(skipInput = true))
-          .text("Skips all inputs."),
-        opt[Unit]("skip-query")
-          .action((_, acc) => acc.copy(skipQuery = true))
-          .text("Skips all queries."),
-        opt[Unit]("user-based")
-          .action((_, acc) => acc.copy(isUserBased = true))
-          .text("Indicator for queries. Sends user-based queries."),
+        opt[Int]("input-weight")
+          .action((w, acc) => acc.copy(inputWeight = w))
+          .validate { i =>
+            if (i >= 0) success
+            else failure("Option --input-weight should be >= 0")
+          }
+          .text(
+            "--input-weight <n> will send every n-th line of source file as an input. Default is 1 (every input will be sent)."
+          ),
         opt[Int]("user-based-weight")
           .action((w, acc) => acc.copy(userBasedWeight = w))
+          .validate { i =>
+            if (i >= 0) success
+            else failure("Option --user-based-weight should be >= 0")
+          }
           .text(
-            "Approximate number of user-based queries compared to item-based queries as a percentage. Default is 100."
+            "--user-based-weight <n> will transform every n-th line of source file to an user-based query and send it to the Harness server. Default is 0 (nothing will be sent by default)."
           ),
-        opt[Unit]("item-based")
-          .action((_, acc) => acc.copy(isItemBased = true))
-          .text("Indicator for queries. Sends item-based queries."),
+        opt[Int]("item-based-weight")
+          .action((w, acc) => acc.copy(itemBasedWeight = w))
+          .validate { i =>
+            if (i >= 0) success
+            else failure("Option --item-based-weight should be >= 0")
+          }
+          .text(
+            "--item-based-weight <n> will transform every n-th line of source file to an item-based query and send it to the Harness server. Default is 0 (nothing will be sent by default)."
+          ),
         opt[Unit]("all-items")
           .action((_, acc) => acc.copy(isAllItems = true))
           .text("Forces to send all item-based queries, not just 'buy' queries"),
@@ -116,11 +129,9 @@ object RunArgs {
         engineId = "test-ur",
         uri = "http://localhost:9090",
         fileName = "events.json",
-        skipInput = false,
-        skipQuery = false,
-        isUserBased = false,
-        userBasedWeight = 100,
-        isItemBased = true,
+        inputWeight = 1,
+        itemBasedWeight = 0,
+        userBasedWeight = 0,
         isAllItems = false,
         filterByItemEvent = "buy",
         factor = 1,
