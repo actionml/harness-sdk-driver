@@ -11,8 +11,9 @@ import sttp.client3.httpclient.zio.HttpClientZioBackend
 import sttp.model.Uri
 import zio._
 import zio.blocking.Blocking
+import zio.clock.Clock
 import zio.duration._
-import zio.stream.{ Sink, ZStream }
+import zio.stream.{ ZSink, ZStream }
 
 object LoadTest extends App {
 
@@ -33,25 +34,32 @@ object LoadTest extends App {
     val queryRequest = mkRequest(uri"${appArgs.uri}/engines/${appArgs.engineId}/queries")
 
     def mkHttpRequests(defaultRequest: Request[Either[String, String], Any],
-                       lines: ZStream[Blocking, Nothing, String],
+                       lines: ZStream[Blocking with Clock, Nothing, String],
                        http: SttpBackend[Task, ZioStreams with WebSockets],
                        filter: String => Boolean = _ => true) =
       lines
         .filter(filter)
-        .throttleShape(appArgs.maxPerSecond, 1.second)(_.size)
+        .throttleShape(appArgs.maxPerSecond, 1.second)(_.length)
         .mapMPar(appArgs.nThreads) { request =>
           val start = System.currentTimeMillis()
           log.trace(s"Sending $request")
-          defaultRequest
+          val sendEff = defaultRequest
             .body(request)
             .send(http)
-            .retry(Schedule.recurs(appArgs.nRetries))
-            .map { resp =>
-              val responseTime = calcLatency(start)
-              log.trace(s"Got response $resp for $request")
-              log.debug(s"Request $request completed in $responseTime ms")
-              (if (resp.isSuccess) 1 else 0, if (resp.isServerError) 1 else 0, responseTime, responseTime, responseTime)
-            }
+          (if (appArgs.ignoreResponses) sendEff.as((0, 0, 0, 0, 0))
+           else
+             sendEff
+               .retry(Schedule.recurs(appArgs.nRetries))
+               .map { resp =>
+                 val responseTime = calcLatency(start)
+                 log.trace(s"Got response $resp for $request")
+                 log.debug(s"Request $request completed in $responseTime ms")
+                 (if (resp.isSuccess) 1 else 0,
+                  if (resp.isServerError) 1 else 0,
+                  responseTime,
+                  responseTime,
+                  responseTime)
+               })
             .foldCause(
               c => {
                 c.failureOption.fold(log.error(s"Got error: ${c.prettyPrint}")) { e =>
@@ -64,7 +72,7 @@ object LoadTest extends App {
             )
         }
 
-    def mkInputs(lines: ZStream[Blocking, Nothing, String]) =
+    def mkInputs(lines: ZStream[Blocking with Clock, Nothing, String]) =
       lines.zipWithIndex.collect {
         case (l, i) if =%=(i, appArgs.inputWeight) => l
       }
@@ -74,7 +82,7 @@ object LoadTest extends App {
       c - Math.floor(c) < 0.001
     }
 
-    def mkQueries(lines: ZStream[Blocking, Nothing, String]) = {
+    def mkQueries(lines: ZStream[Blocking with Clock, Nothing, String]) = {
       def mkItemBasedQuery(s: String) = {
         val eType      = "targetEntityType"
         val eIdType    = "targetEntityId"
@@ -114,19 +122,28 @@ object LoadTest extends App {
       }
     }
 
-    def calcLatency(start: Long): Int = (System.currentTimeMillis() - start + 1).toInt
+    def calcLatency(start: Long): Int = {
+      val a = (System.currentTimeMillis() - start).toInt
+      if (a == 0) 1 else a
+    }
 
     log.info(s"Started with arguments: $appArgs")
     val setsFilter: String => Boolean = s => !(appArgs.skipSets && s.contains("$set"))
 
     def httpRequests(http: SttpBackend[Task, ZioStreams with WebSockets]) = {
-      def lines =
-        linesFromPath(appArgs.fileName)
+      def lines = {
+        val l = linesFromPath(appArgs.fileName)
+        appArgs.totalTime
+          .fold[ZStream[Blocking with Clock, Nothing, String]](l) { totalTime =>
+            l.repeat(Schedule.forever).interruptAfter(Duration.fromScala(totalTime))
+          }
           .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
           .zipWithIndex
           .collect {
             case (r, i) if i % appArgs.factor == 0 => r
           }
+      }
+
       ZStream.mergeAll(2)(
         if (appArgs.isInput) mkHttpRequests(inputRequest, mkInputs(lines), http, setsFilter) else ZStream.empty,
         if (appArgs.isQuery) mkHttpRequests(queryRequest, mkQueries(lines), http) else ZStream.empty
@@ -136,23 +153,44 @@ object LoadTest extends App {
     (for {
       http <- HttpClientZioBackend()
       start = System.currentTimeMillis()
-      results <- httpRequests(http)
-        .run(Sink.foldLeft((1, (0, 0, 0, 0, 0))) {
-          (acc: (Int, (Int, Int, Int, Int, Int)), result: (Int, Int, Int, Int, Int)) =>
-            (acc._1 + 1,
-             (
-               acc._2._1 + result._1,
-               acc._2._2 + result._2,
-               if (acc._2._3 != 0) Math.min(acc._2._3, result._3) else result._3,
-               Math.max(acc._2._4, result._4),
-               acc._2._5 + (result._5 - acc._2._5) / (acc._1 + 1)
-             ))
-        })
-        .map(a => (Results.apply _) tupled a._2)
-      requestsPerSecond = (results.succeeded + results.failed) / (calcLatency(start) / 1000 + 1)
+      r <- httpRequests(http)
+        .run(ZSink.collectAll)
+        .map(_.toList)
+        .map(l => l.map(r => (Results.apply _) tupled r))
+      responses         = r.view
+      totalSent         = responses.length
+      requestsPerSecond = totalSent / calcLatency(start)
+      (_, x) = responses.foldLeft((1, (0, 0, 0, 0, 0))) { (acc: (Int, (Int, Int, Int, Int, Int)), result) =>
+        (acc._1 + 1,
+         (
+           acc._2._1 + result.succeeded,
+           acc._2._2 + result.failed,
+           if (acc._2._3 != 0) Math.min(acc._2._3, result.minLatency) else result.minLatency,
+           Math.max(acc._2._4, result.maxLatency),
+           acc._2._5 + (result.avgLatency - acc._2._5) / (acc._1 + 1)
+         ))
+      }
+      results       = Results.apply _ tupled x
+      responseTimes = responses.map(_.minLatency)
       _ = log.info(
         s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
       )
+      numOfEvents = r.length
+      perc = responseTimes
+        .groupBy(a => a)
+        .view
+        .mapValues(_.toSeq.length)
+        .toSeq
+        .sortBy(_._1)
+        .foldLeft(List.empty[(Int, Float)]) {
+          case (acc, (responseTime, repeats)) =>
+            (responseTime, repeats.toFloat / numOfEvents.toFloat + acc.map(_._2).maxOption.getOrElse(0f)) :: acc
+        }
+        .reverse
+      _ = log.info(perc.map { case (p, i) => s"$p - ${i.toDouble}" }.mkString(", "))
+      _ = println("percentile_values.csv:")
+      _ = println(perc.map(_._2).mkString(","))
+      _ = println(perc.map(_._1).mkString(","))
     } yield 0).exitCode
       .mapErrorCause { c =>
         log.error(s"Got error: ${c.prettyPrint}")
