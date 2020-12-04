@@ -21,6 +21,8 @@ case class RunArgs(
     timeout: FiniteDuration,
     nRetries: Int,
     skipSets: Boolean,
+    ignoreResponses: Boolean,
+    totalTime: Option[FiniteDuration],
 ) {
   def isInput: Boolean             = inputWeight > 0
   def isItemBased: Boolean         = itemBasedWeight > 0
@@ -113,11 +115,25 @@ object RunArgs {
           .action((r, acc) => acc.copy(nRetries = r))
           .text("Number of retries"),
         opt[Int]('t', "timeout")
+          .validate { i =>
+            if (i >= 1) success
+            else failure("Option --timeout should be > 0")
+          }
           .action((t, acc) => acc.copy(timeout = t.seconds))
           .text("Response timeout in seconds"),
         opt[Unit]("skip-sets")
           .action((_, acc) => acc.copy(skipSets = true))
           .text("Skips all $set events"),
+        opt[Unit]("ignore-responses")
+          .action((_, acc) => acc.copy(ignoreResponses = true))
+          .text("Ignores server responses"),
+        opt[Int]("interrupt-after")
+          .validate { i =>
+            if (i >= 1) success
+            else failure("Option --interrupt-after should be > 0")
+          }
+          .action((t, acc) => acc.copy(totalTime = Option(t.minutes)))
+          .text("Duration to send requests, in minutes"),
       )
     }
     val setup: OParserSetup = new DefaultOParserSetup {
@@ -144,6 +160,8 @@ object RunArgs {
         timeout = 5.seconds,
         nRetries = 3,
         skipSets = false,
+        ignoreResponses = false,
+        totalTime = None,
       ),
       setup
     )
