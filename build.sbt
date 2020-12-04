@@ -7,7 +7,7 @@ lazy val root = (project in file(".")).
     inThisBuild(List(
       organization := "com.actionml",
       maintainer := "actionml.com",
-      scalaVersion := "2.13.3",
+      scalaVersion := "2.13.4",
       version      := "0.3.0-SNAPSHOT"
     )),
     addCompilerPlugin("com.olegpy"    %% "better-monadic-for" % "0.3.0"),
