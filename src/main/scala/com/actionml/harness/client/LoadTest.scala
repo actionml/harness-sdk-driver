@@ -159,7 +159,8 @@ object LoadTest extends App {
         .map(l => l.map(r => (Results.apply _) tupled r))
       responses         = r.view
       totalSent         = responses.length
-      requestsPerSecond = totalSent / calcLatency(start)
+      requestsPerSecond = ((totalSent.toFloat / calcLatency(start)) * 1000).toInt
+
       (_, x) = responses.foldLeft((1, (0, 0, 0, 0, 0))) { (acc: (Int, (Int, Int, Int, Int, Int)), result) =>
         (acc._1 + 1,
          (
