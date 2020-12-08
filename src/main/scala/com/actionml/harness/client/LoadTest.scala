@@ -15,6 +15,8 @@ import zio.clock.Clock
 import zio.duration._
 import zio.stream.{ ZSink, ZStream }
 
+import java.io.FileInputStream
+
 object LoadTest extends App {
 
   override def run(args: List[String]): URIO[zio.ZEnv, ExitCode] = {
@@ -22,6 +24,8 @@ object LoadTest extends App {
     val appArgs = RunArgs.parse(args).getOrElse { System.exit(1); throw new RuntimeException }
     val log = IzLogger(if (appArgs.isVerbose) Debug else if (appArgs.isVVerbose) Trace else Info,
                        Seq(ConsoleSink.text(colored = true)))
+    log.info(s"Started with arguments: $appArgs")
+
     def mkRequest(uri: Uri): Request[Either[String, String], Any] =
       basicRequest
         .readTimeout(appArgs.timeout)
@@ -46,7 +50,7 @@ object LoadTest extends App {
           val sendEff = defaultRequest
             .body(request)
             .send(http)
-          (if (appArgs.ignoreResponses) sendEff.as((0, 0, 0, 0, 0))
+          (if (appArgs.ignoreResponses) sendEff.as((1, 0, 0, 0, 0))
            else
              sendEff
                .retry(Schedule.recurs(appArgs.nRetries))
@@ -74,10 +78,10 @@ object LoadTest extends App {
 
     def mkInputs(lines: ZStream[Blocking with Clock, Nothing, String]) =
       lines.zipWithIndex.collect {
-        case (l, i) if =%=(i, appArgs.inputWeight) => l
+        case (l, i) if ~=(i, appArgs.inputWeight) => l
       }
 
-    def =%=(a: Double, b: Double): Boolean = {
+    def ~=(a: Double, b: Double): Boolean = {
       val c = a / b
       c - Math.floor(c) < 0.001
     }
@@ -115,9 +119,9 @@ object LoadTest extends App {
 
       lines.zipWithIndex.flatMap {
         case (s, i) =>
-          (if (appArgs.isItemBased && =%=(i, appArgs.itemBasedWeight)) mkItemBasedQuery(s)
+          (if (appArgs.isItemBased && ~=(i, appArgs.itemBasedWeight)) mkItemBasedQuery(s)
            else ZStream.empty) ++
-          (if (appArgs.isUserBased && =%=(i, appArgs.userBasedWeight)) mkUserBasedQuery(s)
+          (if (appArgs.isUserBased && ~=(i, appArgs.userBasedWeight)) mkUserBasedQuery(s)
            else ZStream.empty)
       }
     }
@@ -127,15 +131,12 @@ object LoadTest extends App {
       if (a == 0) 1 else a
     }
 
-    log.info(s"Started with arguments: $appArgs")
-    val setsFilter: String => Boolean = s => !(appArgs.skipSets && s.contains("$set"))
-
-    def httpRequests(http: SttpBackend[Task, ZioStreams with WebSockets]) = {
+    def combineRequests(http: SttpBackend[Task, ZioStreams with WebSockets]) = {
       def lines = {
         val l = linesFromPath(appArgs.fileName)
         appArgs.totalTime
           .fold[ZStream[Blocking with Clock, Nothing, String]](l) { totalTime =>
-            l.repeat(Schedule.forever).interruptAfter(Duration.fromScala(totalTime))
+            l.interruptAfter(Duration.fromScala(totalTime))
           }
           .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
           .zipWithIndex
@@ -144,6 +145,7 @@ object LoadTest extends App {
           }
       }
 
+      val setsFilter: String => Boolean = s => !(appArgs.skipSets && s.contains("$set"))
       ZStream.mergeAll(2)(
         if (appArgs.isInput) mkHttpRequests(inputRequest, mkInputs(lines), http, setsFilter) else ZStream.empty,
         if (appArgs.isQuery) mkHttpRequests(queryRequest, mkQueries(lines), http) else ZStream.empty
@@ -153,7 +155,7 @@ object LoadTest extends App {
     (for {
       http <- HttpClientZioBackend()
       start = System.currentTimeMillis()
-      r <- httpRequests(http)
+      r <- combineRequests(http)
         .run(ZSink.collectAll)
         .map(_.toList)
         .map(l => l.map(r => (Results.apply _) tupled r))
