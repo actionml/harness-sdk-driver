@@ -50,7 +50,7 @@ object LoadTest extends App {
           val sendEff = defaultRequest
             .body(request)
             .send(http)
-          (if (appArgs.ignoreResponses) sendEff.as((1, 0, 0, 0, 0))
+          (if (appArgs.ignoreResponses) sendEff.ignore.as((1, 0, 0, 0, 0))
            else
              sendEff
                .retry(Schedule.recurs(appArgs.nRetries))
