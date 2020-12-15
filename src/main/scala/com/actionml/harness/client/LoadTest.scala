@@ -15,7 +15,7 @@ import zio.clock.Clock
 import zio.duration._
 import zio.stream.{ ZSink, ZStream }
 
-import java.io.FileInputStream
+import java.io.IOException
 
 object LoadTest extends App {
 
@@ -133,12 +133,11 @@ object LoadTest extends App {
 
     def combineRequests(http: SttpBackend[Task, ZioStreams with WebSockets]) = {
       def lines = {
-        val l = linesFromPath(appArgs.fileName)
+        val l = linesFromPath(appArgs.fileName).drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
         appArgs.totalTime
           .fold[ZStream[Blocking with Clock, Nothing, String]](l) { totalTime =>
-            l.interruptAfter(Duration.fromScala(totalTime))
+            l.forever.interruptAfter(Duration.fromScala(totalTime))
           }
-          .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
           .zipWithIndex
           .collect {
             case (r, i) if i % appArgs.factor == 0 => r
