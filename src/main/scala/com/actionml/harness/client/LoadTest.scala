@@ -211,22 +211,28 @@ object LoadTest extends App {
       r <- combineRequests(http)
         .run(ZSink.collectAll)
         .map(_.toList)
-      responses   = r.view
-      _           = log.info("ALL REQUESTS:")
-      _           = printResults(calcResults(responses, start))
-      _           = printPercentiles(calcPercentiles(responses, r.length))
-      _           = log.info("INPUTS:")
-      inputs      = r.filter(_.requestType == RequestType.Input)
-      _           = printResults(calcResults(inputs.view, start))
-      _           = printPercentiles(calcPercentiles(inputs.view, inputs.length))
-      _           = log.info("USER-BASED QUERIES:")
-      userQueries = r.filter(_.requestType == RequestType.UserQuery)
-      _           = printResults(calcResults(userQueries.view, start))
-      _           = printPercentiles(calcPercentiles(userQueries.view, userQueries.length))
-      _           = log.info("ITEM-BASED QUERIES:")
-      itemQueries = r.filter(_.requestType == RequestType.ItemQuery)
-      _           = printResults(calcResults(itemQueries.view, start))
-      _           = printPercentiles(calcPercentiles(itemQueries.view, itemQueries.length))
+      responses = r.view
+      _         = log.info("ALL REQUESTS:")
+      _         = printResults(calcResults(responses, start))
+      _         = printPercentiles(calcPercentiles(responses, r.length))
+      _ = if (appArgs.isInput) {
+        log.info("INPUTS:")
+        val inputs = r.filter(_.requestType == RequestType.Input)
+        printResults(calcResults(inputs.view, start))
+        printPercentiles(calcPercentiles(inputs.view, inputs.length))
+      }
+      _ = if (appArgs.isUserBased) {
+        log.info("USER-BASED QUERIES:")
+        val userQueries = r.filter(_.requestType == RequestType.UserQuery)
+        printResults(calcResults(userQueries.view, start))
+        printPercentiles(calcPercentiles(userQueries.view, userQueries.length))
+      }
+      _ = if (appArgs.isItemBased) {
+        log.info("ITEM-BASED QUERIES:")
+        val itemQueries = r.filter(_.requestType == RequestType.ItemQuery)
+        printResults(calcResults(itemQueries.view, start))
+        printPercentiles(calcPercentiles(itemQueries.view, itemQueries.length))
+      }
     } yield 0).exitCode
       .mapErrorCause { c =>
         log.error(s"Got error: ${c.prettyPrint}")
