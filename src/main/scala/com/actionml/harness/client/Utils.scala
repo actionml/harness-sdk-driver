@@ -1,28 +1,32 @@
 package com.actionml.harness.client
 
-import zio.{ Cause, IO, ZManaged }
 import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.stream.{ ZStream, ZTransducer }
+import zio.{ Cause, ZIO, ZManaged }
 
-import java.io.FileInputStream
+import java.io.{ FileInputStream, SequenceInputStream }
+import scala.jdk.CollectionConverters.SeqHasAsJava
 
 object Utils {
   def linesFromPath(s: String): ZStream[Blocking with Clock, Nothing, String] = {
-    def fileOrDir = new java.io.File(s)
-    def mkStream =
-      (if (fileOrDir.isDirectory) fileOrDir.listFiles().toSeq else Seq(fileOrDir))
-        .map(new FileInputStream(_))
-        .map { f =>
-          ZStream.fromInputStreamManaged(
-            ZManaged
-              .make(IO.effect(f).catchAll(_ => IO.effect(new java.io.FileInputStream("."))))(
-                f => IO.effect(f.close()).ignore
-              )
-              .mapError(e => new java.io.IOException(e))
-          )
-        }
-        .reduce(_ ++ _)
+    val mkStream = {
+      val fileOrDir = new java.io.File(s)
+      val files = ZIO.effect(
+        new java.util.Vector(
+          SeqHasAsJava(
+            if (fileOrDir.isDirectory) fileOrDir.listFiles().map(new FileInputStream(_)).toSeq
+            else Seq(new FileInputStream(fileOrDir))
+          ).asJava
+        ).elements()
+      )
+
+      ZStream.fromInputStreamManaged(
+        ZManaged.fromEffect(
+          files.bimap(e => new java.io.IOException(e), new SequenceInputStream(_))
+        )
+      )
+    }
 
     mkStream
       .mapErrorCause(_ => Cause.empty)

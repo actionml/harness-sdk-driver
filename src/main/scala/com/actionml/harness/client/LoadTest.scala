@@ -1,5 +1,6 @@
 package com.actionml.harness.client
 
+import com.actionml.harness.client.RequestType.{ ItemQuery, UserQuery }
 import io.circe.Json
 import io.circe.literal._
 import io.circe.parser._
@@ -15,7 +16,7 @@ import zio.clock.Clock
 import zio.duration._
 import zio.stream.{ ZSink, ZStream }
 
-import java.io.FileInputStream
+import scala.collection.SeqView
 
 object LoadTest extends App {
 
@@ -38,47 +39,51 @@ object LoadTest extends App {
     val queryRequest = mkRequest(uri"${appArgs.uri}/engines/${appArgs.engineId}/queries")
 
     def mkHttpRequests(defaultRequest: Request[Either[String, String], Any],
-                       lines: ZStream[Blocking with Clock, Nothing, String],
+                       lines: ZStream[Blocking with Clock, Nothing, (RequestType.RequestType, String)],
                        http: SttpBackend[Task, ZioStreams with WebSockets],
-                       filter: String => Boolean = _ => true) =
+                       filter: String => Boolean = _ => true): ZStream[Blocking with Clock, Nothing, Results] =
       lines
-        .filter(filter)
+        .filter { case (_, r) => filter(r) }
         .throttleShape(appArgs.maxPerSecond, 1.second)(_.length)
-        .mapMPar(appArgs.nThreads) { request =>
-          val start = System.currentTimeMillis()
-          log.trace(s"Sending $request")
-          val sendEff = defaultRequest
-            .body(request)
-            .send(http)
-          (if (appArgs.ignoreResponses) sendEff.as((1, 0, 0, 0, 0))
-           else
-             sendEff
-               .retry(Schedule.recurs(appArgs.nRetries))
-               .map { resp =>
-                 val responseTime = calcLatency(start)
-                 log.trace(s"Got response $resp for $request")
-                 log.debug(s"Request $request completed in $responseTime ms")
-                 (if (resp.isSuccess) 1 else 0,
-                  if (resp.isServerError) 1 else 0,
-                  responseTime,
-                  responseTime,
-                  responseTime)
-               })
-            .foldCause(
-              c => {
-                c.failureOption.fold(log.error(s"Got error: ${c.prettyPrint}")) { e =>
-                  log.error(s"Input event error ${e.getMessage}")
-                }
-                val l = calcLatency(start)
-                (0, 1, l, l, l)
-              },
-              a => a
-            )
+        .mapMPar(appArgs.nThreads) {
+          case (reqType, request) =>
+            val start = System.currentTimeMillis()
+            log.trace(s"Sending $request")
+            val sendEff = defaultRequest
+              .body(request)
+              .send(http)
+            (if (appArgs.ignoreResponses) sendEff.ignore.as(Results(1, 0, 0, 0, 0, reqType))
+             else
+               sendEff
+                 .retry(Schedule.recurs(appArgs.nRetries))
+                 .map { resp =>
+                   val responseTime = calcLatency(start)
+                   log.trace(s"Got response $resp for $request")
+                   log.debug(s"Request $request completed in $responseTime ms")
+                   Results(if (resp.isSuccess) 1 else 0,
+                           if (resp.isServerError) 1 else 0,
+                           responseTime,
+                           responseTime,
+                           responseTime,
+                           reqType)
+                 })
+              .foldCause(
+                c => {
+                  c.failureOption.fold(log.error(s"Got error: ${c.prettyPrint}")) { e =>
+                    log.error(s"Input event error ${e.getMessage}")
+                  }
+                  val l = calcLatency(start)
+                  Results(0, 1, l, l, l, reqType)
+                },
+                a => a
+              )
         }
 
-    def mkInputs(lines: ZStream[Blocking with Clock, Nothing, String]) =
+    def mkInputs(
+        lines: ZStream[Blocking with Clock, Nothing, String]
+    ): ZStream[Blocking with Clock, Nothing, (RequestType.RequestType, String)] =
       lines.zipWithIndex.collect {
-        case (l, i) if ~=(i, appArgs.inputWeight) => l
+        case (l, i) if ~=(i, appArgs.inputWeight) => RequestType.Input -> l
       }
 
     def ~=(a: Double, b: Double): Boolean = {
@@ -86,24 +91,29 @@ object LoadTest extends App {
       c - Math.floor(c) < 0.001
     }
 
-    def mkQueries(lines: ZStream[Blocking with Clock, Nothing, String]) = {
+    def mkQueries(
+        lines: ZStream[Blocking with Clock, Nothing, String]
+    ): ZStream[Blocking with Clock, Nothing, (RequestType.RequestType, String)] = {
       def mkItemBasedQuery(s: String) = {
         val eType      = "targetEntityType"
         val eIdType    = "targetEntityId"
         val eTypeValue = "item"
-        mkSearchString(s, eType = eType, eIdType = eIdType, eTypeValue = eTypeValue)
+        mkSearchString(s, eType = eType, eIdType = eIdType, eTypeValue = eTypeValue, ItemQuery)
       }
       def mkUserBasedQuery(s: String) = {
         val eType      = "entityType"
         val eIdType    = "entityId"
         val eTypeValue = "user"
-        mkSearchString(s, eType = eType, eIdType = eIdType, eTypeValue = eTypeValue)
+        mkSearchString(s, eType = eType, eIdType = eIdType, eTypeValue = eTypeValue, UserQuery)
       }
 
-      def mkSearchString(s: String,
-                         eType: String,
-                         eIdType: String,
-                         eTypeValue: String): zio.stream.Stream[Nothing, String] = {
+      def mkSearchString(
+          s: String,
+          eType: String,
+          eIdType: String,
+          eTypeValue: String,
+          reqType: RequestType.RequestType
+      ): zio.stream.Stream[Nothing, (RequestType.RequestType, String)] = {
         val j = parse(s).getOrElse(Json.Null).dropNullValues
         val entityType = j.hcursor
           .downField(eType)
@@ -112,7 +122,7 @@ object LoadTest extends App {
         val isTarget = entityType.contains(eTypeValue)
         if (isTarget && (appArgs.isAllItems || event.contains(appArgs.filterByItemEvent)))
           ZStream.fromIterable(
-            j.hcursor.downField(eIdType).as[String].toOption.map(id => s"""{"$eTypeValue": "$id"}""")
+            j.hcursor.downField(eIdType).as[String].toOption.map(id => reqType -> s"""{"$eTypeValue": "$id"}""")
           )
         else ZStream.empty
       }
@@ -131,14 +141,15 @@ object LoadTest extends App {
       if (a == 0) 1 else a
     }
 
-    def combineRequests(http: SttpBackend[Task, ZioStreams with WebSockets]) = {
+    def combineRequests(
+        http: SttpBackend[Task, ZioStreams with WebSockets]
+    ): ZStream[Blocking with Clock, Nothing, Results] = {
       def lines = {
-        val l = linesFromPath(appArgs.fileName)
+        val l = linesFromPath(appArgs.fileName).drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
         appArgs.totalTime
           .fold[ZStream[Blocking with Clock, Nothing, String]](l) { totalTime =>
-            l.interruptAfter(Duration.fromScala(totalTime))
+            l.forever.interruptAfter(Duration.fromScala(totalTime))
           }
-          .drop(scala.util.Random.nextLong(appArgs.factor * appArgs.nThreads))
           .zipWithIndex
           .collect {
             case (r, i) if i % appArgs.factor == 0 => r
@@ -152,33 +163,37 @@ object LoadTest extends App {
       )
     }
 
-    (for {
-      http <- HttpClientZioBackend()
-      start = System.currentTimeMillis()
-      r <- combineRequests(http)
-        .run(ZSink.collectAll)
-        .map(_.toList)
-        .map(l => l.map(r => (Results.apply _) tupled r))
-      responses         = r.view
-      totalSent         = responses.length
-      requestsPerSecond = ((totalSent.toFloat / calcLatency(start)) * 1000).toInt
-      (_, x) = responses.foldLeft((1, (0, 0, 0, 0, 0))) { (acc: (Int, (Int, Int, Int, Int, Int)), result) =>
-        (acc._1 + 1,
-         (
-           acc._2._1 + result.succeeded,
-           acc._2._2 + result.failed,
-           if (acc._2._3 != 0) Math.min(acc._2._3, result.minLatency) else result.minLatency,
-           Math.max(acc._2._4, result.maxLatency),
-           acc._2._5 + (result.avgLatency - acc._2._5) / (acc._1 + 1)
-         ))
+    def calcResults(responses: SeqView[Results], start: Long): (Int, Results) = {
+      val (totalSent, results) = responses.foldLeft((1, Results.empty)) {
+        case ((i, Results(succ, fail, min, max, avg, req)), result) =>
+          (i + 1,
+           Results(
+             succ + result.succeeded,
+             fail + result.failed,
+             if (min != 0) Math.min(min, result.minLatency) else result.minLatency,
+             Math.max(max, result.maxLatency),
+             avg + (result.avgLatency - avg) / (i + 1),
+             req
+           ))
       }
-      results       = Results.apply _ tupled x
-      responseTimes = responses.map(_.minLatency)
-      _ = log.info(
-        s"$requestsPerSecond, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
-      )
-      numOfEvents = r.length
-      perc = responseTimes
+      val rps = ((totalSent.toFloat / calcLatency(start)) * 1000).toInt
+      rps -> results
+    }
+    def printResults: ((Int, Results)) => Unit = {
+      case (rps, results) =>
+        log.info(
+          s"$rps, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
+        )
+    }
+    def printPercentiles(perc: List[(Int, Float)]): Unit = {
+      log.info(perc.map { case (p, i) => s"$p - ${i.toDouble}" }.mkString(", "))
+      println("percentile_values.csv:")
+      println(perc.map(_._2).mkString(","))
+      println(perc.map(_._1).mkString(","))
+    }
+    def calcPercentiles(responses: SeqView[Results], totalSize: Long): List[(Int, Float)] =
+      responses
+        .map(_.minLatency)
         .groupBy(a => a)
         .view
         .mapValues(_.toSeq.length)
@@ -186,13 +201,32 @@ object LoadTest extends App {
         .sortBy(_._1)
         .foldLeft(List.empty[(Int, Float)]) {
           case (acc, (responseTime, repeats)) =>
-            (responseTime, repeats.toFloat / numOfEvents.toFloat + acc.map(_._2).maxOption.getOrElse(0f)) :: acc
+            (responseTime, repeats.toFloat / totalSize + acc.map(_._2).maxOption.getOrElse(0f)) :: acc
         }
         .reverse
-      _ = log.info(perc.map { case (p, i) => s"$p - ${i.toDouble}" }.mkString(", "))
-      _ = println("percentile_values.csv:")
-      _ = println(perc.map(_._2).mkString(","))
-      _ = println(perc.map(_._1).mkString(","))
+
+    (for {
+      http <- HttpClientZioBackend()
+      start = System.currentTimeMillis()
+      r <- combineRequests(http)
+        .run(ZSink.collectAll)
+        .map(_.toList)
+      responses   = r.view
+      _           = log.info("ALL REQUESTS:")
+      _           = printResults(calcResults(responses, start))
+      _           = printPercentiles(calcPercentiles(responses, r.length))
+      _           = log.info("INPUTS:")
+      inputs      = r.filter(_.requestType == RequestType.Input)
+      _           = printResults(calcResults(inputs.view, start))
+      _           = printPercentiles(calcPercentiles(inputs.view, inputs.length))
+      _           = log.info("USER-BASED QUERIES:")
+      userQueries = r.filter(_.requestType == RequestType.UserQuery)
+      _           = printResults(calcResults(userQueries.view, start))
+      _           = printPercentiles(calcPercentiles(userQueries.view, userQueries.length))
+      _           = log.info("ITEM-BASED QUERIES:")
+      itemQueries = r.filter(_.requestType == RequestType.ItemQuery)
+      _           = printResults(calcResults(itemQueries.view, start))
+      _           = printPercentiles(calcPercentiles(itemQueries.view, itemQueries.length))
     } yield 0).exitCode
       .mapErrorCause { c =>
         log.error(s"Got error: ${c.prettyPrint}")
@@ -201,15 +235,21 @@ object LoadTest extends App {
   }
 }
 
-final case class Results(succeeded: Int, failed: Int, minLatency: Int, maxLatency: Int, avgLatency: Int) {
-  def sum(r: Results): Results =
-    Results(r.succeeded + succeeded,
-            r.failed + failed,
-            r.minLatency + minLatency,
-            r.maxLatency + maxLatency,
-            r.avgLatency + avgLatency)
-}
+final case class Results(succeeded: Int,
+                         failed: Int,
+                         minLatency: Int,
+                         maxLatency: Int,
+                         avgLatency: Int,
+                         requestType: RequestType.RequestType)
 
 object Results {
-  val empty: Results = Results(0, 0, 0, 0, 0)
+  val empty: Results = Results(0, 0, 0, 0, 0, RequestType.Unknown)
+}
+
+object RequestType extends Enumeration {
+  type RequestType = Value
+  val Unknown   = Value(-1)
+  val Input     = Value(0)
+  val ItemQuery = Value(1)
+  val UserQuery = Value(2)
 }
