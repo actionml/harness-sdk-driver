@@ -163,7 +163,7 @@ object LoadTest extends App {
       )
     }
 
-    def calcResults(responses: SeqView[Results], start: Long): (Int, Results) = {
+    def calcResults(responses: SeqView[Results], totalTime: Long): (Int, Results) = {
       val (totalSent, results) = responses.foldLeft((1, Results.empty)) {
         case ((i, Results(succ, fail, min, max, avg, req)), result) =>
           (i + 1,
@@ -176,11 +176,12 @@ object LoadTest extends App {
              req
            ))
       }
-      val rps = ((totalSent.toFloat / calcLatency(start)) * 1000).toInt
+      val rps = ((totalSent.toFloat / totalTime) * 1000).toInt
       rps -> results
     }
     def printResults: ((Int, Results)) => Unit = {
-      case (rps, results) =>
+      case (rpsValue, results) =>
+        val rps = if (rpsValue < 1) "less then 1" else rpsValue.toString
         log.info(
           s"$rps, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
         )
@@ -211,26 +212,27 @@ object LoadTest extends App {
       r <- combineRequests(http)
         .run(ZSink.collectAll)
         .map(_.toList)
+      totalTime = calcLatency(start)
       responses = r.view
       _         = log.info("ALL REQUESTS:")
-      _         = printResults(calcResults(responses, start))
+      _         = printResults(calcResults(responses, totalTime))
       _         = printPercentiles(calcPercentiles(responses, r.length))
       _ = if (appArgs.isInput) {
         log.info("INPUTS:")
         val inputs = r.filter(_.requestType == RequestType.Input)
-        printResults(calcResults(inputs.view, start))
+        printResults(calcResults(inputs.view, totalTime))
         printPercentiles(calcPercentiles(inputs.view, inputs.length))
       }
       _ = if (appArgs.isUserBased) {
         log.info("USER-BASED QUERIES:")
         val userQueries = r.filter(_.requestType == RequestType.UserQuery)
-        printResults(calcResults(userQueries.view, start))
+        printResults(calcResults(userQueries.view, totalTime))
         printPercentiles(calcPercentiles(userQueries.view, userQueries.length))
       }
       _ = if (appArgs.isItemBased) {
         log.info("ITEM-BASED QUERIES:")
         val itemQueries = r.filter(_.requestType == RequestType.ItemQuery)
-        printResults(calcResults(itemQueries.view, start))
+        printResults(calcResults(itemQueries.view, totalTime))
         printPercentiles(calcPercentiles(itemQueries.view, itemQueries.length))
       }
     } yield 0).exitCode
