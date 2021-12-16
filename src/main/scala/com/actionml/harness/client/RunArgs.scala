@@ -24,14 +24,14 @@ case class RunArgs(
     ignoreResponses: Boolean,
     totalTime: Option[FiniteDuration],
 ) {
-  def isInput: Boolean             = inputWeight > 0
-  def isItemBased: Boolean         = itemBasedWeight > 0
-  def isUserBased: Boolean         = userBasedWeight > 0
-  def isQuery: Boolean             = isItemBased || isUserBased
-  private val commonWeight: Double = inputWeight + userBasedWeight + itemBasedWeight
-  def inputRps: Int                = (inputWeight / commonWeight * maxPerSecond).toInt
-  def itemBasedRps: Int            = (itemBasedWeight / commonWeight * maxPerSecond).toInt
-  def userBasedRps: Int            = (userBasedWeight / commonWeight * maxPerSecond).toInt
+  def isInput: Boolean     = inputWeight > 0
+  def isItemBased: Boolean = itemBasedWeight > 0
+  def isUserBased: Boolean = userBasedWeight > 0
+  def isQuery: Boolean     = isItemBased || isUserBased
+  def commonWeight: Double = inputWeight + userBasedWeight + itemBasedWeight
+  def inputRps: Int        = (inputWeight / commonWeight * maxPerSecond).toInt
+  def itemBasedRps: Int    = (itemBasedWeight / commonWeight * maxPerSecond).toInt
+  def userBasedRps: Int    = (userBasedWeight / commonWeight * maxPerSecond).toInt
 }
 
 object RunArgs {
