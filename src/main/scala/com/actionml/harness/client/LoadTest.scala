@@ -1,6 +1,6 @@
 package com.actionml.harness.client
 
-import com.actionml.harness.client.RequestType.{ ItemQuery, UserQuery }
+import com.actionml.harness.client.RequestType.{ItemQuery, UserQuery}
 import io.circe.Json
 import io.circe.literal._
 import io.circe.parser._
@@ -14,9 +14,9 @@ import zio._
 import zio.blocking.Blocking
 import zio.clock.Clock
 import zio.duration._
-import zio.stream.{ ZSink, ZStream }
+import zio.stream.{ZSink, ZStream}
 
-import scala.collection.SeqView
+import scala.collection.{SeqView, View}
 
 object LoadTest extends App {
 
@@ -163,7 +163,7 @@ object LoadTest extends App {
       )
     }
 
-    def calcResults(responses: SeqView[Results], totalTime: Long): (Int, Results) = {
+    def calcResults(responses: View[Results], totalTime: Long): (Int, Results) = {
       val (totalSent, results) = responses.foldLeft((1, Results.empty)) {
         case ((i, Results(succ, fail, min, max, avg, req)), result) =>
           (i + 1,
@@ -186,54 +186,48 @@ object LoadTest extends App {
           s"$rps, ${results.succeeded}, ${results.failed}, ${results.minLatency} ms, ${results.maxLatency} ms, ${results.avgLatency} ms"
         )
     }
-    def printPercentiles(perc: List[(Int, Float)]): Unit = {
+    def printPercentiles(perc: Seq[(Int, Int)]): Unit = {
       log.info(perc.map { case (p, i) => s"$p - ${i.toDouble}" }.mkString(", "))
       println("percentile_values.csv:")
-      println(perc.map(_._2).mkString(","))
       println(perc.map(_._1).mkString(","))
+      println(perc.map(_._2).mkString(","))
     }
-    def calcPercentiles(responses: SeqView[Results], totalSize: Long): List[(Int, Float)] =
-      responses
-        .map(_.minLatency)
-        .groupBy(a => a)
-        .view
-        .mapValues(_.toSeq.length)
-        .toSeq
-        .sortBy(_._1)
-        .foldLeft(List.empty[(Int, Float)]) {
-          case (acc, (responseTime, repeats)) =>
-            (responseTime, repeats.toFloat / totalSize + acc.map(_._2).maxOption.getOrElse(0f)) :: acc
-        }
-        .reverse
+    def calcPercentiles(responses: View[Results]): Seq[(Int, Int)] = {
+      val sorted = responses.map(_.minLatency).toSeq.sorted
+      val p50 = sorted.drop(sorted.size / 2).headOption.getOrElse(sorted.last)
+      val p75 = sorted.drop(sorted.size * 75 / 100).headOption.getOrElse(sorted.last)
+      val p95 = sorted.drop(sorted.size * 95 / 100).headOption.getOrElse(sorted.last)
+      val p99 = sorted.drop(sorted.size * 99 / 100).headOption.getOrElse(sorted.last)
+      Seq(50 -> p50, 75 -> p75, 95 -> p95, 99 -> p99)
+    }
 
     (for {
       http <- HttpClientZioBackend()
       start = System.currentTimeMillis()
       r <- combineRequests(http)
         .run(ZSink.collectAll)
-        .map(_.toList)
+        .map(_.view)
       totalTime = calcLatency(start)
-      responses = r.view
       _         = log.info("ALL REQUESTS:")
-      _         = printResults(calcResults(responses, totalTime))
-      _         = printPercentiles(calcPercentiles(responses, r.length))
+      _         = printResults(calcResults(r, totalTime))
+      _         = printPercentiles(calcPercentiles(r))
       _ = if (appArgs.isInput) {
         log.info("INPUTS:")
         val inputs = r.filter(_.requestType == RequestType.Input)
-        printResults(calcResults(inputs.view, totalTime))
-        printPercentiles(calcPercentiles(inputs.view, inputs.length))
+        printResults(calcResults(inputs, totalTime))
+        printPercentiles(calcPercentiles(inputs))
       }
       _ = if (appArgs.isUserBased) {
         log.info("USER-BASED QUERIES:")
         val userQueries = r.filter(_.requestType == RequestType.UserQuery)
-        printResults(calcResults(userQueries.view, totalTime))
-        printPercentiles(calcPercentiles(userQueries.view, userQueries.length))
+        printResults(calcResults(userQueries, totalTime))
+        printPercentiles(calcPercentiles(userQueries))
       }
       _ = if (appArgs.isItemBased) {
         log.info("ITEM-BASED QUERIES:")
         val itemQueries = r.filter(_.requestType == RequestType.ItemQuery)
-        printResults(calcResults(itemQueries.view, totalTime))
-        printPercentiles(calcPercentiles(itemQueries.view, itemQueries.length))
+        printResults(calcResults(itemQueries, totalTime))
+        printPercentiles(calcPercentiles(itemQueries))
       }
     } yield 0).exitCode
       .mapErrorCause { c =>
