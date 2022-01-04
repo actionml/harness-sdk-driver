@@ -86,10 +86,7 @@ object LoadTest extends App {
         case (l, i) if ~=(i, appArgs.inputWeight) => RequestType.Input -> l
       }
 
-    def ~=(a: Double, b: Double): Boolean = {
-      val c = a / b
-      c - Math.floor(c) < 0.001
-    }
+    def ~=(a: Double, b: Double): Boolean = (a - Math.floor(a / b) * b) < 1
 
     def mkQueries(
         lines: ZStream[Blocking with Clock, Nothing, String]
